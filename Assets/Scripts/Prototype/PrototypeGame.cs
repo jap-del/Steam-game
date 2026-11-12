@@ -36,11 +36,22 @@ namespace SteamGame.Prototype
         private Camera _camera;
         private GUIStyle _hudStyle;
         private GUIStyle _popupStyle;
+        private GUIStyle _cardTitleStyle;
+        private GUIStyle _cardBodyStyle;
+        private List<Upgrade> _choices;
         private int _wave;
         private int _pincers;
         private int _kills;
         private float _nextWaveTimer;
+        private float _rewardTimer;
+        private bool _rewardPending;
         private bool _restartRequested;
+
+        /// <summary>이번 판의 수치. 강화를 고르면 바뀌고, 다시 시작하면 처음으로 돌아간다.</summary>
+        public RunStats Stats { get; private set; }
+
+        /// <summary>강화를 고르는 동안에는 게임이 멈춘다.</summary>
+        public bool IsPaused => _choices != null;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetStatics()
@@ -54,8 +65,14 @@ namespace SteamGame.Prototype
             if (_instance != null) return;
             if (SceneManager.GetActiveScene().name != PrototypeSceneName) return;
 
+            Time.timeScale = 1f;
             var go = new GameObject("PrototypeGame");
             _instance = go.AddComponent<PrototypeGame>();
+        }
+
+        private void OnDestroy()
+        {
+            Time.timeScale = 1f;
         }
 
         private void Start()
@@ -78,6 +95,13 @@ namespace SteamGame.Prototype
                 return;
             }
 
+            if (_choices != null)
+            {
+                int picked = ReadChoiceInput();
+                if (picked >= 0 && picked < _choices.Count) Choose(picked);
+                return;
+            }
+
             for (int i = _popups.Count - 1; i >= 0; i--)
             {
                 Popup popup = _popups[i];
@@ -86,10 +110,66 @@ namespace SteamGame.Prototype
                 else _popups[i] = popup;
             }
 
-            if (_enemies.Count == 0)
+            if (_enemies.Count > 0) return;
+
+            if (_rewardPending)
             {
-                _nextWaveTimer -= Time.deltaTime;
-                if (_nextWaveTimer <= 0f) SpawnWave();
+                // 마지막 적을 잡은 직후 잠깐 뜸을 들였다가 강화 선택 화면을 띄운다.
+                _rewardTimer -= Time.deltaTime;
+                if (_rewardTimer <= 0f) OpenChoices();
+                return;
+            }
+
+            _nextWaveTimer -= Time.deltaTime;
+            if (_nextWaveTimer <= 0f) SpawnWave();
+        }
+
+        // ---- 강화 선택 ----
+
+        private void OpenChoices()
+        {
+            _rewardPending = false;
+            List<Upgrade> choices = UpgradePool.Pick(Stats, 3);
+            if (choices.Count == 0)
+            {
+                _nextWaveTimer = 1f;
+                return;
+            }
+            _choices = choices;
+            Time.timeScale = 0f;
+        }
+
+        private static int ReadChoiceInput()
+        {
+            Keyboard keyboard = Keyboard.current;
+            if (keyboard != null)
+            {
+                if (keyboard.digit1Key.wasPressedThisFrame || keyboard.numpad1Key.wasPressedThisFrame) return 0;
+                if (keyboard.digit2Key.wasPressedThisFrame || keyboard.numpad2Key.wasPressedThisFrame) return 1;
+                if (keyboard.digit3Key.wasPressedThisFrame || keyboard.numpad3Key.wasPressedThisFrame) return 2;
+            }
+
+            Gamepad gamepad = Gamepad.current;
+            if (gamepad != null)
+            {
+                if (gamepad.dpad.left.wasPressedThisFrame) return 0;
+                if (gamepad.dpad.up.wasPressedThisFrame) return 1;
+                if (gamepad.dpad.right.wasPressedThisFrame) return 2;
+            }
+            return -1;
+        }
+
+        private void Choose(int index)
+        {
+            Upgrade upgrade = _choices[index];
+            _choices = null;
+            Time.timeScale = 1f;
+            _nextWaveTimer = 1.2f;
+
+            if (_player != null)
+            {
+                upgrade.Apply(Stats, _player);
+                ShowPopup(_player.Position + Vector2.up * 2.2f, upgrade.Title, new Color(0.6f, 1f, 0.7f, 1f));
             }
         }
 
@@ -100,6 +180,10 @@ namespace SteamGame.Prototype
             if (_root != null) Destroy(_root);
             _enemies.Clear();
             _popups.Clear();
+            _choices = null;
+            _rewardPending = false;
+            Time.timeScale = 1f;
+            Stats = new RunStats();
             _wave = 0;
             _pincers = 0;
             _kills = 0;
@@ -116,16 +200,11 @@ namespace SteamGame.Prototype
             CreateSolid("PlatformMid", parent, new Vector2(0f, 1.2f), new Vector2(6f, 0.5f), groundColor);
             CreateSolid("PlatformRight", parent, new Vector2(9f, -0.6f), new Vector2(5f, 0.5f), groundColor);
 
-            var shadowGo = new GameObject("ShadowClone");
-            shadowGo.transform.SetParent(parent, false);
-            var shadow = shadowGo.AddComponent<ShadowClone>();
-            shadow.Build(PlayerController.BodySize);
-
             var playerGo = new GameObject("Player");
             playerGo.transform.SetParent(parent, false);
             playerGo.transform.position = new Vector3(0f, GroundTop + PlayerController.BodySize.y * 0.5f + 0.05f, 0f);
             _player = playerGo.AddComponent<PlayerController>();
-            _player.Build(this, shadow);
+            _player.Build(this, Stats);
 
             // 협공을 연습할 수 있는 허수아비. 움직이지 않고 체력이 다시 찬다.
             Vector2 dummySize = new Vector2(1f, 1.8f);
@@ -194,6 +273,7 @@ namespace SteamGame.Prototype
                 go.transform.SetParent(_root.transform, false);
                 go.transform.position = new Vector3(x, GroundTop + size.y * 0.5f + 0.05f, 0f);
                 var enemy = go.AddComponent<Enemy>();
+                enemy.MaxHealth = 30f + 6f * (_wave - 1);
                 enemy.MoveSpeed = Random.Range(1.8f, 3.2f);
                 enemy.Build(this, _player, size, new Color(0.85f, 0.3f, 0.35f, 1f), false);
 
@@ -213,7 +293,11 @@ namespace SteamGame.Prototype
             if (_enemies.Remove(enemy))
             {
                 _kills++;
-                if (_enemies.Count == 0) _nextWaveTimer = 1.5f;
+                if (_enemies.Count == 0)
+                {
+                    _rewardPending = true;
+                    _rewardTimer = 0.6f;
+                }
             }
         }
 
@@ -234,6 +318,14 @@ namespace SteamGame.Prototype
             _popups.Add(new Popup { Position = position, Text = text, Color = color, Age = 0f });
         }
 
+        /// <summary>충격파 같은 범위 공격을 잠깐 보여 준다.</summary>
+        public void ShowBlast(Vector2 center, float radius, Color color)
+        {
+            if (_root == null) return;
+            SpriteRenderer blast = PrototypeArt.CreateBox("Blast", _root.transform, center, new Vector2(radius * 2f, radius * 2f), color, 7);
+            Destroy(blast.gameObject, 0.15f);
+        }
+
         private void OnGUI()
         {
             if (_hudStyle == null)
@@ -246,6 +338,18 @@ namespace SteamGame.Prototype
                 _popupStyle.fontSize = 20;
                 _popupStyle.fontStyle = FontStyle.Bold;
                 _popupStyle.alignment = TextAnchor.MiddleCenter;
+
+                _cardTitleStyle = new GUIStyle(GUI.skin.label);
+                _cardTitleStyle.fontSize = 22;
+                _cardTitleStyle.fontStyle = FontStyle.Bold;
+                _cardTitleStyle.alignment = TextAnchor.UpperCenter;
+                _cardTitleStyle.normal.textColor = Color.white;
+
+                _cardBodyStyle = new GUIStyle(GUI.skin.label);
+                _cardBodyStyle.fontSize = 16;
+                _cardBodyStyle.wordWrap = true;
+                _cardBodyStyle.alignment = TextAnchor.UpperCenter;
+                _cardBodyStyle.normal.textColor = Color.white;
             }
 
             if (_player != null)
@@ -257,12 +361,21 @@ namespace SteamGame.Prototype
                         : "자리 바꾸기 가능");
 
                 GUI.color = Color.white;
-                GUI.Label(new Rect(16f, 12f, 600f, 28f), "체력 " + _player.Health + " / " + _player.MaxHealth + "    웨이브 " + _wave + "    처치 " + _kills + "    협공 " + _pincers, _hudStyle);
-                GUI.Label(new Rect(16f, 40f, 600f, 28f), shadowState, _hudStyle);
+                GUI.Label(new Rect(16f, 12f, 600f, 28f), "체력 " + _player.Health + " / " + Stats.MaxHealth + "    웨이브 " + _wave + "    처치 " + _kills + "    협공 " + _pincers, _hudStyle);
+                string dashState = _player.DashCooldownRemaining > 0f
+                    ? "대시 " + _player.DashCooldownRemaining.ToString("0.0") + "초"
+                    : "대시 가능";
+                GUI.Label(new Rect(16f, 40f, 600f, 28f), shadowState + "    " + dashState, _hudStyle);
             }
 
             GUI.color = new Color(1f, 1f, 1f, 0.7f);
-            GUI.Label(new Rect(16f, Screen.height - 40f, 1200f, 28f), "이동 A/D 또는 방향키    점프 Space    공격 J 또는 마우스 왼쪽    자리 바꾸기 K 또는 마우스 오른쪽    다시 시작 R", _hudStyle);
+            GUI.Label(new Rect(16f, Screen.height - 40f, 1200f, 28f), "이동 A/D 또는 방향키    점프 Space    공격 J 또는 마우스 왼쪽    자리 바꾸기 K 또는 마우스 오른쪽    대시 Shift    다시 시작 R", _hudStyle);
+
+            if (_choices != null)
+            {
+                DrawChoices();
+                return;
+            }
 
             if (_camera == null) return;
             for (int i = 0; i < _popups.Count; i++)
@@ -276,6 +389,33 @@ namespace SteamGame.Prototype
                 GUI.Label(new Rect(screen.x - 100f, Screen.height - screen.y - 15f, 200f, 30f), popup.Text, _popupStyle);
             }
             GUI.color = Color.white;
+        }
+
+        private void DrawChoices()
+        {
+            GUI.color = new Color(0f, 0f, 0f, 0.65f);
+            GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
+            GUI.color = Color.white;
+
+            const float cardWidth = 300f;
+            const float cardHeight = 190f;
+            const float gap = 24f;
+            float totalWidth = _choices.Count * cardWidth + (_choices.Count - 1) * gap;
+            float left = (Screen.width - totalWidth) * 0.5f;
+            float top = (Screen.height - cardHeight) * 0.5f;
+
+            GUI.Label(new Rect(0f, top - 60f, Screen.width, 36f), "강화를 하나 고르세요 (숫자 키 1, 2, 3 또는 클릭)", _cardTitleStyle);
+
+            int clicked = -1;
+            for (int i = 0; i < _choices.Count; i++)
+            {
+                var card = new Rect(left + i * (cardWidth + gap), top, cardWidth, cardHeight);
+                if (GUI.Button(card, GUIContent.none)) clicked = i;
+                GUI.Label(new Rect(card.x + 12f, card.y + 14f, cardWidth - 24f, 32f), (i + 1) + ". " + _choices[i].Title, _cardTitleStyle);
+                GUI.Label(new Rect(card.x + 16f, card.y + 64f, cardWidth - 32f, cardHeight - 76f), _choices[i].Description, _cardBodyStyle);
+            }
+
+            if (clicked >= 0) Choose(clicked);
         }
     }
 }

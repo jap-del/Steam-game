@@ -8,10 +8,6 @@ namespace SteamGame.Prototype
     /// </summary>
     public sealed class Enemy : MonoBehaviour
     {
-        /// <summary>본체와 분신의 공격이 이 시간 안에 겹치면 협공으로 친다.</summary>
-        public const float PincerWindow = 0.35f;
-        public const float PincerMultiplier = 2f;
-
         public float MaxHealth = 30f;
         public float MoveSpeed = 2.4f;
         public float JumpSpeed = 13.5f;
@@ -105,10 +101,11 @@ namespace SteamGame.Prototype
 
             int self = (int)source;
             int other = 1 - self;
-            bool pincer = Time.time - _lastHitTime[other] <= PincerWindow;
+            // 본체와 분신의 공격이 정해진 시간 안에 겹치면 협공이다.
+            bool pincer = Time.time - _lastHitTime[other] <= _game.Stats.PincerWindow;
             _lastHitTime[self] = Time.time;
 
-            if (pincer) damage *= PincerMultiplier;
+            if (pincer) damage *= _game.Stats.PincerMultiplier;
             _health -= damage;
 
             Vector2 popupPosition = (Vector2)transform.position + Vector2.up * (_size.y * 0.5f + 0.6f);

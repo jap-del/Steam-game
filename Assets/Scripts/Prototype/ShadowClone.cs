@@ -8,28 +8,28 @@ namespace SteamGame.Prototype
     /// </summary>
     public sealed class ShadowClone : MonoBehaviour
     {
-        public float DamageMultiplier = 0.5f;
-
         private SpriteRenderer _body;
         private SpriteRenderer _slash;
         private Vector2 _previous;
         private Vector2 _target;
         private float _slashTimer;
         private bool _active;
+        private float _slashScale = 1f;
 
         public bool IsActive => _active;
         public Vector2 Position => _target;
 
-        public void Build(Vector2 bodySize)
+        public void Build(Vector2 bodySize, float slashScale, float alpha)
         {
-            _body = PrototypeArt.CreateBox("Body", transform, Vector2.zero, bodySize, new Color(0.45f, 0.25f, 0.85f, 0.55f), 9);
-            _slash = PrototypeArt.CreateBox("Slash", transform, Vector2.zero, Combat.SlashSize, new Color(0.7f, 0.5f, 1f, 0.6f), 11);
+            _slashScale = slashScale;
+            _body = PrototypeArt.CreateBox("Body", transform, Vector2.zero, bodySize, new Color(0.45f, 0.25f, 0.85f, alpha), 9);
+            _slash = PrototypeArt.CreateBox("Slash", transform, Vector2.zero, Combat.SlashSize * slashScale, new Color(0.7f, 0.5f, 1f, 0.6f), 11);
             _slash.enabled = false;
             SetVisible(false);
         }
 
         /// <summary>플레이어가 매 물리 틱마다 호출한다. frame은 지연 시간만큼 과거의 플레이어 상태다.</summary>
-        public void Replay(ShadowFrame frame, float baseDamage)
+        public void Replay(ShadowFrame frame, float damage)
         {
             if (!_active)
             {
@@ -45,22 +45,11 @@ namespace SteamGame.Prototype
 
             if (frame.Attacked)
             {
-                Combat.Slash(frame.Position, frame.Facing, baseDamage * DamageMultiplier, HitSource.Shadow);
-                _slash.transform.localPosition = new Vector3(frame.Facing * Combat.SlashReach, 0f, 0f);
+                Combat.Slash(frame.Position, frame.Facing, damage, HitSource.Shadow, _slashScale);
+                _slash.transform.localPosition = new Vector3(frame.Facing * Combat.SlashReach * _slashScale, 0f, 0f);
                 _slash.enabled = true;
                 _slashTimer = 0.12f;
             }
-        }
-
-        public void Hide()
-        {
-            _active = false;
-            _slashTimer = 0f;
-            if (_slash != null)
-            {
-                _slash.enabled = false;
-            }
-            SetVisible(false);
         }
 
         private void Update()
