@@ -31,6 +31,21 @@ namespace SteamGame.Prototype
             return Apply(hits, damage, source, center);
         }
 
+        /// <summary>그 지점이 바닥이나 벽 같은 지형 안인지 확인한다. 적과 플레이어는 지형으로 치지 않는다.</summary>
+        public static bool IsSolidAt(Vector2 point)
+        {
+            Collider2D[] hits = Physics2D.OverlapPointAll(point);
+            for (int i = 0; i < hits.Length; i++)
+            {
+                Collider2D hit = hits[i];
+                if (!hit.isTrigger && hit.attachedRigidbody == null && hit.GetComponentInParent<Enemy>() == null)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private static int Apply(Collider2D[] hits, float damage, HitSource source, Vector2 origin)
         {
             HitThisAttack.Clear();

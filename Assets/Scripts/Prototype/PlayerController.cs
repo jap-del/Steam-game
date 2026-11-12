@@ -59,6 +59,7 @@ namespace SteamGame.Prototype
         private float _knockbackTimer;
         private bool _attackedThisTick;
         private int _health;
+        private Vector2 _lastSafePosition;
 
         public int Health => _health;
         public Collider2D Collider => _collider;
@@ -67,11 +68,12 @@ namespace SteamGame.Prototype
         public float DashCooldownRemaining => Mathf.Max(0f, _dashCooldownTimer);
         public float ShadowFill => _shadows.Count > 0 ? _shadows[0].Recorder.Fill : 0f;
 
-        public void Build(PrototypeGame game, RunStats stats)
+        public void Build(PrototypeGame game, RunStats stats, int startHealth)
         {
             _game = game;
             _stats = stats;
-            _health = stats.MaxHealth;
+            _health = Mathf.Clamp(startHealth, 1, stats.MaxHealth);
+            _lastSafePosition = transform.position;
 
             _sprite = PrototypeArt.CreateBox("Body", transform, Vector2.zero, BodySize, BodyColor, 10);
             _slash = PrototypeArt.CreateBox("Slash", transform, Vector2.zero, Combat.SlashSize, new Color(1f, 1f, 1f, 0.7f), 12);
@@ -257,9 +259,24 @@ namespace SteamGame.Prototype
 
         private void FixedUpdate()
         {
+            if (_health <= 0) return;
+
+            if (_body.position.y < StageBuilder.KillY)
+            {
+                FallIntoPit();
+                return;
+            }
+
             bool grounded = IsGrounded();
-            if (grounded) _coyoteTimer = CoyoteTime;
-            else if (_coyoteTimer > 0f) _coyoteTimer -= Time.fixedDeltaTime;
+            if (grounded)
+            {
+                _coyoteTimer = CoyoteTime;
+                if (_dashTimer <= 0f && _knockbackTimer <= 0f) _lastSafePosition = _body.position;
+            }
+            else if (_coyoteTimer > 0f)
+            {
+                _coyoteTimer -= Time.fixedDeltaTime;
+            }
 
             Vector2 velocity = _body.linearVelocity;
 
@@ -325,10 +342,30 @@ namespace SteamGame.Prototype
             return false;
         }
 
-        public void TakeDamage(int amount, float sourceX)
+        /// <summary>구덩이에 빠지면 체력을 1 잃고 마지막으로 서 있던 땅으로 돌아간다.</summary>
+        private void FallIntoPit()
         {
-            // 대시 중에는 피해를 받지 않는다.
-            if (_invulnerableTimer > 0f || _dashTimer > 0f || _health <= 0) return;
+            _health -= 1;
+            if (_health <= 0)
+            {
+                _game.RequestRestart();
+                return;
+            }
+
+            Vector2 destination = _lastSafePosition + Vector2.up * 0.1f;
+            _body.position = destination;
+            transform.position = new Vector3(destination.x, destination.y, 0f);
+            _body.linearVelocity = Vector2.zero;
+            _dashTimer = 0f;
+            _knockbackTimer = 0f;
+            _invulnerableTimer = InvulnerableTime;
+            _game.ShowPopup(destination + Vector2.up * 1.2f, "-1", new Color(1f, 0.4f, 0.4f, 1f));
+        }
+
+        /// <summary>피해를 실제로 받았으면 true. 대시 중이거나 방금 맞아서 무적이면 false.</summary>
+        public bool TakeDamage(int amount, float sourceX)
+        {
+            if (_invulnerableTimer > 0f || _dashTimer > 0f || _health <= 0) return false;
 
             _health -= amount;
             _invulnerableTimer = InvulnerableTime;
@@ -341,6 +378,7 @@ namespace SteamGame.Prototype
             {
                 _game.RequestRestart();
             }
+            return true;
         }
     }
 }

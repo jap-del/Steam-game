@@ -2,16 +2,48 @@ using UnityEngine;
 
 namespace SteamGame.Prototype
 {
+    public enum EnemyKind
+    {
+        /// <summary>움직이지 않는 연습용 허수아비. 체력이 다 닳으면 다시 찬다.</summary>
+        Dummy = 0,
+        /// <summary>다가와서 잠깐 번쩍인 뒤 돌진한다. 돌진을 피하면 빈틈이 생긴다.</summary>
+        Brute = 1,
+        /// <summary>제자리에서 번쩍인 뒤 탄을 쏜다.</summary>
+        Shooter = 2,
+    }
+
     /// <summary>
-    /// 연습용 적. 플레이어를 향해 걸어와 닿으면 피해를 준다.
-    /// IsDummy가 켜져 있으면 움직이지 않는 허수아비로, 체력이 다 닳으면 다시 채워진다.
+    /// 적. 모든 공격 전에 번쩍이는 예고 동작이 있어서 보고 피할 수 있다.
+    /// 예고와 공격 중에는 맞아도 밀려나지 않으므로, 계속 때리기만 해서는 막을 수 없다.
     /// </summary>
     public sealed class Enemy : MonoBehaviour
     {
+        private enum State
+        {
+            Idle,
+            Chase,
+            Windup,
+            Attack,
+            Recover,
+        }
+
         public float MaxHealth = 30f;
-        public float MoveSpeed = 2.4f;
-        public float JumpSpeed = 13.5f;
-        public bool IsDummy;
+        public float MoveSpeed = 2.6f;
+
+        private const float BruteNoticeRange = 10f;
+        private const float BruteForgetRange = 18f;
+        private const float BruteAttackRange = 2.4f;
+        private const float BruteWindupTime = 0.45f;
+        private const float BruteLungeTime = 0.28f;
+        private const float BruteLungeSpeed = 11f;
+        private const float BruteRecoverTime = 0.7f;
+
+        private const float ShooterRange = 14f;
+        private const float ShooterWindupTime = 0.5f;
+        private const float ShooterInterval = 2.2f;
+        private const float ProjectileSpeed = 7.5f;
+
+        private static readonly Color WarningColor = new Color(1f, 0.95f, 0.3f, 1f);
 
         private PrototypeGame _game;
         private PlayerController _player;
@@ -20,34 +52,61 @@ namespace SteamGame.Prototype
         private SpriteRenderer _sprite;
         private Transform _healthFill;
         private Color _baseColor;
+        private Color _flashColor;
         private Vector2 _size;
+        private State _state = State.Idle;
+        private float _stateTimer;
+        private float _cooldown;
+        private int _facing = 1;
         private float _health;
         private float _stunTimer;
         private float _flashTimer;
-        private float _jumpTimer;
+        private bool _dead;
         private readonly float[] _lastHitTime = { -999f, -999f };
 
+        public EnemyKind Kind { get; private set; }
         public Collider2D Collider => _collider;
 
-        public void Build(PrototypeGame game, PlayerController player, Vector2 size, Color color, bool isDummy)
+        public static Vector2 SizeOf(EnemyKind kind)
+        {
+            switch (kind)
+            {
+                case EnemyKind.Dummy: return new Vector2(1f, 1.8f);
+                case EnemyKind.Shooter: return new Vector2(0.8f, 1f);
+                default: return new Vector2(0.9f, 1.2f);
+            }
+        }
+
+        private static Color ColorOf(EnemyKind kind)
+        {
+            switch (kind)
+            {
+                case EnemyKind.Dummy: return new Color(0.8f, 0.65f, 0.35f, 1f);
+                case EnemyKind.Shooter: return new Color(0.95f, 0.5f, 0.15f, 1f);
+                default: return new Color(0.85f, 0.3f, 0.35f, 1f);
+            }
+        }
+
+        public void Build(PrototypeGame game, PlayerController player, EnemyKind kind)
         {
             _game = game;
             _player = player;
-            _size = size;
-            _baseColor = color;
-            IsDummy = isDummy;
+            Kind = kind;
+            _size = SizeOf(kind);
+            _baseColor = ColorOf(kind);
             _health = MaxHealth;
+            _cooldown = Random.Range(0.4f, 1.4f);
 
-            _sprite = PrototypeArt.CreateBox("Body", transform, Vector2.zero, size, color, 8);
+            _sprite = PrototypeArt.CreateBox("Body", transform, Vector2.zero, _size, _baseColor, 8);
 
-            float barY = size.y * 0.5f + 0.3f;
+            float barY = _size.y * 0.5f + 0.3f;
             PrototypeArt.CreateBox("HealthBack", transform, new Vector2(0f, barY), new Vector2(1.1f, 0.14f), new Color(0f, 0f, 0f, 0.7f), 13);
             _healthFill = PrototypeArt.CreateBox("HealthFill", transform, new Vector2(0f, barY), new Vector2(1f, 0.08f), new Color(0.9f, 0.25f, 0.25f, 1f), 14).transform;
 
             _collider = gameObject.AddComponent<BoxCollider2D>();
-            _collider.size = size;
+            _collider.size = _size;
 
-            if (!isDummy)
+            if (kind != EnemyKind.Dummy)
             {
                 _body = gameObject.AddComponent<Rigidbody2D>();
                 _body.gravityScale = 3.5f;
@@ -57,47 +116,145 @@ namespace SteamGame.Prototype
 
         private void Update()
         {
+            Color color = _baseColor;
             if (_flashTimer > 0f)
             {
                 _flashTimer -= Time.deltaTime;
-                if (_flashTimer <= 0f) _sprite.color = _baseColor;
+                color = _flashColor;
             }
+            else if (_state == State.Windup)
+            {
+                // 공격 예고: 빠르게 깜빡인다.
+                color = Mathf.FloorToInt(Time.time * 14f) % 2 == 0 ? WarningColor : _baseColor;
+            }
+            else if (_state == State.Attack)
+            {
+                color = WarningColor;
+            }
+            else if (_state == State.Recover)
+            {
+                // 빈틈: 어둡게 보인다.
+                color = new Color(_baseColor.r * 0.55f, _baseColor.g * 0.55f, _baseColor.b * 0.55f, 1f);
+            }
+            _sprite.color = color;
         }
 
         private void FixedUpdate()
         {
-            if (IsDummy || _player == null) return;
-            if (_jumpTimer > 0f) _jumpTimer -= Time.fixedDeltaTime;
+            if (Kind == EnemyKind.Dummy || _player == null || _dead) return;
 
-            if (_stunTimer > 0f)
+            if (_body.position.y < StageBuilder.KillY)
             {
-                _stunTimer -= Time.fixedDeltaTime;
+                Die();
+                return;
             }
-            else
-            {
-                float dx = _player.Position.x - _body.position.x;
-                float speed = Mathf.Abs(dx) > 0.3f ? Mathf.Sign(dx) * MoveSpeed : 0f;
-                float vertical = _body.linearVelocity.y;
 
-                // 플레이어가 가까운 위쪽에 있으면 뛰어오른다. 발판 위에 숨을 수 없게 하기 위함이다.
-                bool playerAbove = _player.Position.y > _body.position.y + 1f;
-                if (playerAbove && Mathf.Abs(dx) < 4f && Mathf.Abs(vertical) < 0.01f && _jumpTimer <= 0f)
+            bool stunned = _stunTimer > 0f;
+            if (stunned) _stunTimer -= Time.fixedDeltaTime;
+
+            Vector2 toPlayer = _player.Position - _body.position;
+            float horizontal = Kind == EnemyKind.Brute ? TickBrute(toPlayer) : TickShooter(toPlayer);
+
+            if (!stunned)
+            {
+                _body.linearVelocity = new Vector2(horizontal, _body.linearVelocity.y);
+            }
+        }
+
+        /// <summary>돌진형: 다가간다, 번쩍인다, 돌진한다, 잠깐 멈춘다.</summary>
+        private float TickBrute(Vector2 toPlayer)
+        {
+            float distanceX = Mathf.Abs(toPlayer.x);
+            float distanceY = Mathf.Abs(toPlayer.y);
+
+            switch (_state)
+            {
+                case State.Idle:
+                    if (distanceX < BruteNoticeRange && distanceY < 3.5f) _state = State.Chase;
+                    return 0f;
+
+                case State.Chase:
+                    _facing = toPlayer.x >= 0f ? 1 : -1;
+                    if (distanceX > BruteForgetRange)
+                    {
+                        _state = State.Idle;
+                        return 0f;
+                    }
+                    if (distanceX <= BruteAttackRange && distanceY < 1.6f)
+                    {
+                        Enter(State.Windup, BruteWindupTime);
+                        _game.ShowPopup(_body.position + Vector2.up * (_size.y * 0.5f + 0.9f), "!", WarningColor);
+                        return 0f;
+                    }
+                    return distanceX > 0.4f && HasGroundAhead() ? _facing * MoveSpeed : 0f;
+
+                case State.Windup:
+                    // 돌진 방향은 예고를 시작할 때 정해진다. 그래서 뒤로 넘어가면 피할 수 있다.
+                    _stateTimer -= Time.fixedDeltaTime;
+                    if (_stateTimer <= 0f) Enter(State.Attack, BruteLungeTime);
+                    return 0f;
+
+                case State.Attack:
+                    if (_collider.bounds.Intersects(_player.Collider.bounds))
+                    {
+                        _player.TakeDamage(1, _body.position.x);
+                    }
+                    _stateTimer -= Time.fixedDeltaTime;
+                    if (_stateTimer <= 0f) Enter(State.Recover, BruteRecoverTime);
+                    return HasGroundAhead() ? _facing * BruteLungeSpeed : 0f;
+
+                default:
+                    _stateTimer -= Time.fixedDeltaTime;
+                    if (_stateTimer <= 0f) _state = State.Chase;
+                    return 0f;
+            }
+        }
+
+        /// <summary>원거리형: 제자리에서 번쩍인 뒤 플레이어가 있던 쪽으로 탄을 쏜다.</summary>
+        private float TickShooter(Vector2 toPlayer)
+        {
+            if (_state == State.Windup)
+            {
+                _stateTimer -= Time.fixedDeltaTime;
+                if (_stateTimer <= 0f)
                 {
-                    vertical = JumpSpeed;
-                    _jumpTimer = 1.2f;
+                    Vector2 direction = toPlayer.sqrMagnitude > 0.01f ? toPlayer.normalized : new Vector2(_facing, 0f);
+                    _game.SpawnProjectile(_body.position, direction * ProjectileSpeed);
+                    _cooldown = ShooterInterval;
+                    _state = State.Idle;
                 }
-                _body.linearVelocity = new Vector2(speed, vertical);
+                return 0f;
             }
 
-            if (_collider.bounds.Intersects(_player.Collider.bounds))
+            _facing = toPlayer.x >= 0f ? 1 : -1;
+            if (Mathf.Abs(toPlayer.x) < ShooterRange && Mathf.Abs(toPlayer.y) < 7f)
             {
-                _player.TakeDamage(1, _body.position.x);
+                _cooldown -= Time.fixedDeltaTime;
+                if (_cooldown <= 0f)
+                {
+                    Enter(State.Windup, ShooterWindupTime);
+                    _game.ShowPopup(_body.position + Vector2.up * (_size.y * 0.5f + 0.9f), "!", WarningColor);
+                }
             }
+            return 0f;
+        }
+
+        private void Enter(State state, float duration)
+        {
+            _state = state;
+            _stateTimer = duration;
+        }
+
+        /// <summary>발 앞쪽에 바닥이 있는지 본다. 없으면 낭떠러지라서 멈춘다.</summary>
+        private bool HasGroundAhead()
+        {
+            Vector2 probe = _body.position + new Vector2(_facing * (_size.x * 0.5f + 0.35f), -_size.y * 0.5f - 0.3f);
+            return Combat.IsSolidAt(probe);
         }
 
         public void TakeHit(float damage, HitSource source, Vector2 knockback)
         {
-            if (_health <= 0f) return;
+            if (_dead) return;
 
             int self = (int)source;
             int other = 1 - self;
@@ -112,33 +269,35 @@ namespace SteamGame.Prototype
             if (pincer)
             {
                 _game.CountPincer();
-                _game.ShowPopup(popupPosition, "협공! " + Mathf.RoundToInt(damage), new Color(1f, 0.85f, 0.2f, 1f));
-                _sprite.color = new Color(1f, 0.9f, 0.3f, 1f);
+                _game.ShowPopup(popupPosition, "협공! " + Mathf.RoundToInt(damage), WarningColor);
+                _flashColor = new Color(1f, 0.9f, 0.3f, 1f);
             }
             else
             {
                 Color popupColor = source == HitSource.Shadow ? new Color(0.75f, 0.6f, 1f, 1f) : Color.white;
                 _game.ShowPopup(popupPosition, Mathf.RoundToInt(damage).ToString(), popupColor);
-                _sprite.color = Color.white;
+                _flashColor = Color.white;
             }
             _flashTimer = 0.1f;
 
-            if (_body != null)
+            // 예고와 공격 중에는 밀려나지 않는다.
+            bool armored = _state == State.Windup || _state == State.Attack;
+            if (_body != null && !armored)
             {
                 _body.linearVelocity = knockback;
                 _stunTimer = 0.25f;
+                if (_state == State.Idle && Kind == EnemyKind.Brute) _state = State.Chase;
             }
 
             if (_health <= 0f)
             {
-                if (IsDummy)
+                if (Kind == EnemyKind.Dummy)
                 {
                     _health = MaxHealth;
                 }
                 else
                 {
-                    _game.OnEnemyDied(this);
-                    Destroy(gameObject);
+                    Die();
                     return;
                 }
             }
@@ -146,6 +305,14 @@ namespace SteamGame.Prototype
             float ratio = Mathf.Clamp01(_health / MaxHealth);
             _healthFill.localScale = new Vector3(ratio, 0.08f, 1f);
             _healthFill.localPosition = new Vector3(-(1f - ratio) * 0.5f, _healthFill.localPosition.y, 0f);
+        }
+
+        private void Die()
+        {
+            if (_dead) return;
+            _dead = true;
+            _game.OnEnemyDied(this);
+            Destroy(gameObject);
         }
     }
 }
