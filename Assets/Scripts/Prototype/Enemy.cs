@@ -14,6 +14,12 @@ namespace SteamGame.Prototype
         MidBoss = 3,
         /// <summary>보스. 돌진, 다섯 갈래 탄, 뛰어올라 내려찍기를 차례로 쓴다.</summary>
         Boss = 4,
+        /// <summary>방패병. 돌진형처럼 싸우지만 앞에서 때리면 막는다. 뒤를 치거나 빈틈을 노려야 한다.</summary>
+        Shield = 5,
+        /// <summary>폭탄병. 내가 있는 자리로 폭탄을 던진다. 떨어질 자리가 미리 표시된다.</summary>
+        Bomber = 6,
+        /// <summary>날아다니는 적. 지형을 무시하고 위에서 맴돌다가 번쩍인 뒤 내리꽂는다.</summary>
+        Flyer = 7,
     }
 
     /// <summary>
@@ -49,6 +55,21 @@ namespace SteamGame.Prototype
         private const float ShooterWindupTime = 0.5f;
         private const float ShooterInterval = 2.2f;
         private const float ProjectileSpeed = 7.5f;
+
+        private const float ShieldTurnTime = 0.6f;
+
+        private const float BomberWindupTime = 0.6f;
+        private const float BomberInterval = 2.8f;
+        private const float BombFlightTime = 0.9f;
+        private const float BombRadius = 1.5f;
+
+        private const float FlyerNoticeRange = 11f;
+        private const float FlyerHoverSpeed = 4f;
+        private const float FlyerWindupTime = 0.5f;
+        private const float FlyerDiveSpeed = 13f;
+        private const float FlyerDiveTime = 0.55f;
+        private const float FlyerRecoverTime = 0.8f;
+        private const float FlyerInterval = 1.6f;
 
         private const float BossNoticeRange = 18f;
         private const float BossWindupTime = 0.6f;
@@ -94,6 +115,11 @@ namespace SteamGame.Prototype
         private int _gapDirection = 1;
         private float _stuckTimer;
         private float _lastX;
+        private float _turnTimer;
+        private Vector2 _diveDirection;
+        private float _hoverSide = 1f;
+        private float _diveFloorY;
+        private SpriteRenderer _shieldVisual;
         private readonly float[] _lastHitTime = { -999f, -999f };
 
         public EnemyKind Kind { get; private set; }
@@ -124,6 +150,9 @@ namespace SteamGame.Prototype
                 case EnemyKind.Shooter: return new Vector2(0.8f, 1f);
                 case EnemyKind.MidBoss: return new Vector2(1.5f, 2f);
                 case EnemyKind.Boss: return new Vector2(2f, 2.6f);
+                case EnemyKind.Shield: return new Vector2(1f, 1.4f);
+                case EnemyKind.Bomber: return new Vector2(0.9f, 1f);
+                case EnemyKind.Flyer: return new Vector2(0.9f, 0.6f);
                 default: return new Vector2(0.9f, 1.2f);
             }
         }
@@ -136,6 +165,9 @@ namespace SteamGame.Prototype
                 case EnemyKind.Shooter: return new Color(0.95f, 0.5f, 0.15f, 1f);
                 case EnemyKind.MidBoss: return new Color(0.75f, 0.25f, 0.6f, 1f);
                 case EnemyKind.Boss: return new Color(0.65f, 0.12f, 0.18f, 1f);
+                case EnemyKind.Shield: return new Color(0.45f, 0.6f, 0.8f, 1f);
+                case EnemyKind.Bomber: return new Color(0.5f, 0.7f, 0.3f, 1f);
+                case EnemyKind.Flyer: return new Color(0.85f, 0.4f, 0.8f, 1f);
                 default: return new Color(0.85f, 0.3f, 0.35f, 1f);
             }
         }
@@ -165,7 +197,23 @@ namespace SteamGame.Prototype
                 _body.gravityScale = BossGravityScale;
                 _body.freezeRotation = true;
             }
+
+            if (kind == EnemyKind.Flyer)
+            {
+                // 날아다니는 적은 중력을 받지 않고 지형을 통과한다. 공격에는 그대로 맞는다.
+                _body.gravityScale = 0f;
+                _collider.isTrigger = true;
+            }
+
+            if (kind == EnemyKind.Shield)
+            {
+                // 방패가 어느 쪽을 막고 있는지 보여 주는 밝은 막대.
+                _shieldVisual = PrototypeArt.CreateBox("Shield", transform, Vector2.zero, new Vector2(0.16f, _size.y * 0.9f), new Color(0.85f, 0.95f, 1f, 1f), 9);
+            }
         }
+
+        /// <summary>방패병이 지금 그쪽을 막고 있는지. 공격 뒤 빈틈에는 방패를 내린다.</summary>
+        private bool IsGuarding => Kind == EnemyKind.Shield && _state != State.Recover;
 
         private void Update()
         {
@@ -190,6 +238,12 @@ namespace SteamGame.Prototype
                 color = new Color(_baseColor.r * 0.55f, _baseColor.g * 0.55f, _baseColor.b * 0.55f, 1f);
             }
             _sprite.color = color;
+
+            if (_shieldVisual != null)
+            {
+                _shieldVisual.enabled = IsGuarding;
+                _shieldVisual.transform.localPosition = new Vector3(_facing * (_size.x * 0.5f + 0.1f), 0f, 0f);
+            }
         }
 
         private void FixedUpdate()
@@ -206,9 +260,17 @@ namespace SteamGame.Prototype
             if (stunned) _stunTimer -= Time.fixedDeltaTime;
 
             Vector2 toPlayer = _player.Position - _body.position;
+            if (Kind == EnemyKind.Flyer)
+            {
+                // 날아다니는 적은 위아래로도 스스로 움직이므로 따로 처리한다.
+                Vector2 velocity = TickFlyer(toPlayer);
+                if (!stunned) _body.linearVelocity = velocity;
+                return;
+            }
+
             float horizontal;
             if (IsBoss) horizontal = TickBoss(toPlayer);
-            else if (Kind == EnemyKind.Brute) horizontal = TickBrute(toPlayer);
+            else if (Kind == EnemyKind.Brute || Kind == EnemyKind.Shield) horizontal = TickBrute(toPlayer);
             else horizontal = TickShooter(toPlayer);
 
             if (!stunned)
@@ -297,12 +359,13 @@ namespace SteamGame.Prototype
                     _gapTimer -= Time.fixedDeltaTime;
                     return _gapDirection * BruteGapSpeed;
                 }
-                _facing = toPlayer.x >= 0f ? 1 : -1;
+                TurnToward(toPlayer.x);
                 return distanceX > 0.4f ? _facing * MoveSpeed : 0f;
             }
 
             _gapTimer = 0f;
-            _facing = toPlayer.x >= 0f ? 1 : -1;
+            // 방패병은 돌아서는 데 시간이 걸린다. 돌아서는 동안에는 제자리에 서 있다.
+            if (!TurnToward(toPlayer.x)) return 0f;
             Vector2 warningPosition = _body.position + Vector2.up * (_size.y * 0.5f + 0.9f);
 
             // 같은 높이에서 가까우면 돌진을 예고한다.
@@ -365,6 +428,35 @@ namespace SteamGame.Prototype
             return 0f;
         }
 
+        /// <summary>
+        /// 플레이어 쪽을 본다. 방패병은 바로 돌지 못하고 잠깐 걸린다.
+        /// 지금 플레이어 쪽을 보고 있으면 true.
+        /// </summary>
+        private bool TurnToward(float deltaX)
+        {
+            int desired = deltaX >= 0f ? 1 : -1;
+            if (desired == _facing)
+            {
+                _turnTimer = 0f;
+                return true;
+            }
+
+            if (Kind != EnemyKind.Shield)
+            {
+                _facing = desired;
+                return true;
+            }
+
+            _turnTimer += Time.fixedDeltaTime;
+            if (_turnTimer >= ShieldTurnTime)
+            {
+                _turnTimer = 0f;
+                _facing = desired;
+                return true;
+            }
+            return false;
+        }
+
         private void Hop()
         {
             _body.linearVelocity = new Vector2(_body.linearVelocity.x, BruteHopSpeed);
@@ -410,9 +502,18 @@ namespace SteamGame.Prototype
                 _stateTimer -= Time.fixedDeltaTime;
                 if (_stateTimer <= 0f)
                 {
-                    Vector2 direction = toPlayer.sqrMagnitude > 0.01f ? toPlayer.normalized : new Vector2(_facing, 0f);
-                    _game.SpawnProjectile(_body.position, direction * ProjectileSpeed, 0.35f);
-                    _cooldown = ShooterInterval;
+                    if (Kind == EnemyKind.Bomber)
+                    {
+                        // 폭탄은 지금 플레이어가 있는 자리에 떨어진다.
+                        _game.SpawnBomb(_body.position, _player.Position, BombFlightTime, BombRadius);
+                        _cooldown = BomberInterval;
+                    }
+                    else
+                    {
+                        Vector2 direction = toPlayer.sqrMagnitude > 0.01f ? toPlayer.normalized : new Vector2(_facing, 0f);
+                        _game.SpawnProjectile(_body.position, direction * ProjectileSpeed, 0.35f);
+                        _cooldown = ShooterInterval;
+                    }
                     _state = State.Idle;
                 }
                 return 0f;
@@ -424,11 +525,75 @@ namespace SteamGame.Prototype
                 _cooldown -= Time.fixedDeltaTime;
                 if (_cooldown <= 0f)
                 {
-                    Enter(State.Windup, ShooterWindupTime);
+                    Enter(State.Windup, Kind == EnemyKind.Bomber ? BomberWindupTime : ShooterWindupTime);
                     _game.ShowPopup(_body.position + Vector2.up * (_size.y * 0.5f + 0.9f), "!", WarningColor);
                 }
             }
             return 0f;
+        }
+
+        /// <summary>
+        /// 날아다니는 적: 플레이어의 비스듬한 위쪽에서 맴돌다가, 번쩍인 뒤 그때 정한 방향으로 곧게 내리꽂는다.
+        /// 내리꽂은 뒤에는 잠깐 멈춰서 빈틈이 생긴다.
+        /// </summary>
+        private Vector2 TickFlyer(Vector2 toPlayer)
+        {
+            switch (_state)
+            {
+                case State.Idle:
+                    if (toPlayer.magnitude < FlyerNoticeRange)
+                    {
+                        _state = State.Chase;
+                        _hoverSide = toPlayer.x >= 0f ? -1f : 1f;
+                    }
+                    return Vector2.zero;
+
+                case State.Chase:
+                    _facing = toPlayer.x >= 0f ? 1 : -1;
+                    Vector2 hoverPoint = _player.Position + new Vector2(_hoverSide * 3f, 3.2f);
+                    Vector2 toHover = hoverPoint - _body.position;
+                    _cooldown -= Time.fixedDeltaTime;
+                    if (_cooldown <= 0f && toHover.magnitude < 2f)
+                    {
+                        _diveDirection = toPlayer.sqrMagnitude > 0.01f ? toPlayer.normalized : Vector2.down;
+                        _diveFloorY = _player.Position.y;
+                        Enter(State.Windup, FlyerWindupTime);
+                        _game.ShowPopup(_body.position + Vector2.up * (_size.y * 0.5f + 0.9f), "!", WarningColor);
+                        return Vector2.zero;
+                    }
+                    return toHover.magnitude > 0.3f ? toHover.normalized * FlyerHoverSpeed : Vector2.zero;
+
+                case State.Windup:
+                    // 내리꽂는 방향은 예고를 시작할 때 정해진다. 그 자리를 벗어나면 피할 수 있다.
+                    _stateTimer -= Time.fixedDeltaTime;
+                    if (_stateTimer <= 0f) Enter(State.Attack, FlyerDiveTime);
+                    return Vector2.zero;
+
+                case State.Attack:
+                    if (_collider.bounds.Intersects(_player.Collider.bounds))
+                    {
+                        _player.TakeDamage(1, _body.position.x);
+                    }
+                    // 플레이어가 있던 높이까지만 내려온다. 그래서 내리꽂은 뒤에는 손이 닿는 곳에 멈춰 있다.
+                    _stateTimer -= Time.fixedDeltaTime;
+                    if (_stateTimer <= 0f || _body.position.y <= _diveFloorY)
+                    {
+                        Enter(State.Recover, FlyerRecoverTime);
+                        return Vector2.zero;
+                    }
+                    return _diveDirection * FlyerDiveSpeed;
+
+                default:
+                    _stateTimer -= Time.fixedDeltaTime;
+                    if (_stateTimer <= 0f)
+                    {
+                        _state = State.Chase;
+                        _cooldown = FlyerInterval;
+                        // 내리꽂고 나면 반대편으로 넘어가 있으니, 지금 있는 쪽에서 다시 맴돈다.
+                        _hoverSide = toPlayer.x >= 0f ? -1f : 1f;
+                    }
+                    return Vector2.zero;
+            }
         }
 
         /// <summary>
@@ -604,6 +769,16 @@ namespace SteamGame.Prototype
         public void TakeHit(float damage, HitSource source, Vector2 knockback)
         {
             if (_dead) return;
+
+            // 방패병은 앞에서 온 공격을 막는다. 밀려나는 방향의 반대쪽이 공격자가 있는 쪽이다.
+            int attackerSide = knockback.x >= 0f ? -1 : 1;
+            if (IsGuarding && attackerSide == _facing)
+            {
+                _game.ShowPopup((Vector2)transform.position + Vector2.up * (_size.y * 0.5f + 0.6f), "막힘", new Color(0.8f, 0.9f, 1f, 1f));
+                _flashColor = new Color(0.8f, 0.9f, 1f, 1f);
+                _flashTimer = 0.08f;
+                return;
+            }
 
             int self = (int)source;
             int other = 1 - self;
