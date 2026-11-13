@@ -23,7 +23,8 @@ namespace SteamGame.Prototype
         private const float JumpBufferTime = 0.12f;
         private const float InvulnerableTime = 0.8f;
         private const float ShockwaveRadius = 2.2f;
-        private const int TrailDotCount = 10;
+        private const int TrailCount = 8;
+        private const float TrailMinSpacing = 0.35f;
 
         /// <summary>분신 하나와, 그 분신이 따라 할 과거 기록.</summary>
         private sealed class ShadowSlot
@@ -117,11 +118,12 @@ namespace SteamGame.Prototype
                 if (_trailDots[i] != null) Destroy(_trailDots[i].gameObject);
             }
             _trailDots.Clear();
-            for (int i = 0; i < TrailDotCount; i++)
+            for (int i = 0; i < TrailCount; i++)
             {
-                // 분신이 앞으로 지나갈 길을 점으로 보여 준다.
-                float alpha = Mathf.Lerp(0.45f, 0.12f, i / (float)(TrailDotCount - 1));
-                SpriteRenderer dot = PrototypeArt.CreateBox("ShadowTrail", transform.parent, Vector2.zero, new Vector2(0.14f, 0.14f), new Color(0.7f, 0.5f, 1f, alpha), 6);
+                // 분신이 앞으로 지나갈 길을 내 캐릭터의 흐린 잔상으로 보여 준다.
+                // 나와 가까운 잔상일수록 조금 더 진하고, 분신 쪽으로 갈수록 옅어진다.
+                float alpha = Mathf.Lerp(0.06f, 0.22f, i / (float)(TrailCount - 1));
+                SpriteRenderer dot = PrototypeArt.CreateBox("Afterimage", transform.parent, Vector2.zero, BodySize, new Color(0.8f, 0.72f, 1f, alpha), 6);
                 dot.enabled = false;
                 _trailDots.Add(dot);
             }
@@ -402,20 +404,35 @@ namespace SteamGame.Prototype
             UpdateTrail();
         }
 
-        /// <summary>첫 번째 분신이 앞으로 지나갈 길에 점을 찍는다. 고정 중이거나 분신이 아직 없으면 숨긴다.</summary>
+        /// <summary>
+        /// 첫 번째 분신이 앞으로 지나갈 길에 잔상을 남긴다. 고정 중이거나 분신이 아직 없으면 숨긴다.
+        /// 가만히 서 있을 때 잔상이 한곳에 겹쳐 진해지지 않도록, 서로 너무 가까운 잔상은 그리지 않는다.
+        /// </summary>
         private void UpdateTrail()
         {
             bool show = _shadows.Count > 0 && !_shadowsAnchored && _shadows[0].Clone.IsActive;
             ShadowRecorder recorder = show ? _shadows[0].Recorder : null;
-            for (int i = 0; i < _trailDots.Count; i++)
+
+            // 나와 가까운 잔상부터 거꾸로 훑으며, 바로 앞에 그린 것과 충분히 떨어진 것만 보여 준다.
+            Vector2 lastShown = _body.position;
+            for (int i = _trailDots.Count - 1; i >= 0; i--)
             {
-                SpriteRenderer dot = _trailDots[i];
-                if (dot == null) continue;
+                SpriteRenderer afterimage = _trailDots[i];
+                if (afterimage == null) continue;
 
                 ShadowFrame frame = default;
-                bool visible = show && recorder.TryPeek((i + 1) * recorder.DelayTicks / (TrailDotCount + 1), out frame);
-                dot.enabled = visible;
-                if (visible) dot.transform.position = new Vector3(frame.Position.x, frame.Position.y, 0f);
+                bool visible = show && recorder.TryPeek((i + 1) * recorder.DelayTicks / (TrailCount + 1), out frame);
+                if (visible && (frame.Position - lastShown).sqrMagnitude < TrailMinSpacing * TrailMinSpacing)
+                {
+                    visible = false;
+                }
+
+                afterimage.enabled = visible;
+                if (visible)
+                {
+                    afterimage.transform.position = new Vector3(frame.Position.x, frame.Position.y, 0f);
+                    lastShown = frame.Position;
+                }
             }
         }
 
