@@ -23,8 +23,7 @@ namespace SteamGame.Prototype
         private const float JumpBufferTime = 0.12f;
         private const float InvulnerableTime = 0.8f;
         private const float ShockwaveRadius = 2.2f;
-        private const int TrailCount = 8;
-        private const float TrailMinSpacing = 0.35f;
+        private const int PathPointCount = 16;
 
         /// <summary>분신 하나와, 그 분신이 따라 할 과거 기록.</summary>
         private sealed class ShadowSlot
@@ -38,7 +37,7 @@ namespace SteamGame.Prototype
 
         private readonly List<ShadowSlot> _shadows = new List<ShadowSlot>();
         private readonly ContactPoint2D[] _contacts = new ContactPoint2D[8];
-        private readonly List<SpriteRenderer> _trailDots = new List<SpriteRenderer>();
+        private LineRenderer _pathLine;
         private bool _shadowsAnchored;
         private PrototypeGame _game;
         private RunStats _stats;
@@ -113,20 +112,8 @@ namespace SteamGame.Prototype
             _shadows.Clear();
             _shadowsAnchored = false;
 
-            for (int i = 0; i < _trailDots.Count; i++)
-            {
-                if (_trailDots[i] != null) Destroy(_trailDots[i].gameObject);
-            }
-            _trailDots.Clear();
-            for (int i = 0; i < TrailCount; i++)
-            {
-                // 분신이 앞으로 지나갈 길을 내 캐릭터의 흐린 잔상으로 보여 준다.
-                // 나와 가까운 잔상일수록 조금 더 진하고, 분신 쪽으로 갈수록 옅어진다.
-                float alpha = Mathf.Lerp(0.06f, 0.22f, i / (float)(TrailCount - 1));
-                SpriteRenderer dot = PrototypeArt.CreateBox("Afterimage", transform.parent, Vector2.zero, BodySize, new Color(0.8f, 0.72f, 1f, alpha), 6);
-                dot.enabled = false;
-                _trailDots.Add(dot);
-            }
+            if (_pathLine != null) Destroy(_pathLine.gameObject);
+            _pathLine = CreatePathLine();
 
             int baseTicks = Mathf.Max(1, Mathf.RoundToInt(_stats.ShadowDelaySeconds / Time.fixedDeltaTime));
             for (int i = 0; i < _stats.ShadowCount; i++)
@@ -404,36 +391,62 @@ namespace SteamGame.Prototype
             UpdateTrail();
         }
 
+        /// <summary>분신이 앞으로 지나갈 길을 보여 주는 얇고 흐린 선.</summary>
+        private LineRenderer CreatePathLine()
+        {
+            var go = new GameObject("ShadowPath");
+            go.transform.SetParent(transform.parent, false);
+            var line = go.AddComponent<LineRenderer>();
+            line.useWorldSpace = true;
+            line.positionCount = PathPointCount;
+            line.startWidth = 0.07f;
+            line.endWidth = 0.07f;
+            line.numCapVertices = 2;
+            line.numCornerVertices = 2;
+            // 분신 쪽은 조금 진하고, 나에게 가까워질수록 옅어진다.
+            line.startColor = new Color(0.7f, 0.5f, 1f, 0.45f);
+            line.endColor = new Color(0.7f, 0.5f, 1f, 0.05f);
+            line.sortingOrder = 6;
+            Material material = PrototypeArt.UnlitMaterial;
+            if (material != null) line.sharedMaterial = material;
+            line.enabled = false;
+            return line;
+        }
+
         /// <summary>
-        /// 첫 번째 분신이 앞으로 지나갈 길에 잔상을 남긴다. 고정 중이거나 분신이 아직 없으면 숨긴다.
-        /// 가만히 서 있을 때 잔상이 한곳에 겹쳐 진해지지 않도록, 서로 너무 가까운 잔상은 그리지 않는다.
+        /// 첫 번째 분신에서 시작해 분신이 앞으로 지나갈 길을 선 하나로 잇는다.
+        /// 고정 중이거나, 분신이 아직 없거나, 거의 움직이지 않았으면 숨긴다.
         /// </summary>
         private void UpdateTrail()
         {
+            if (_pathLine == null) return;
+
             bool show = _shadows.Count > 0 && !_shadowsAnchored && _shadows[0].Clone.IsActive;
-            ShadowRecorder recorder = show ? _shadows[0].Recorder : null;
-
-            // 나와 가까운 잔상부터 거꾸로 훑으며, 바로 앞에 그린 것과 충분히 떨어진 것만 보여 준다.
-            Vector2 lastShown = _body.position;
-            for (int i = _trailDots.Count - 1; i >= 0; i--)
+            if (!show)
             {
-                SpriteRenderer afterimage = _trailDots[i];
-                if (afterimage == null) continue;
-
-                ShadowFrame frame = default;
-                bool visible = show && recorder.TryPeek((i + 1) * recorder.DelayTicks / (TrailCount + 1), out frame);
-                if (visible && (frame.Position - lastShown).sqrMagnitude < TrailMinSpacing * TrailMinSpacing)
-                {
-                    visible = false;
-                }
-
-                afterimage.enabled = visible;
-                if (visible)
-                {
-                    afterimage.transform.position = new Vector3(frame.Position.x, frame.Position.y, 0f);
-                    lastShown = frame.Position;
-                }
+                _pathLine.enabled = false;
+                return;
             }
+
+            ShadowRecorder recorder = _shadows[0].Recorder;
+            Vector2 previous = _shadows[0].Clone.Position;
+            float length = 0f;
+            _pathLine.SetPosition(0, new Vector3(previous.x, previous.y, 0f));
+            for (int i = 1; i < PathPointCount; i++)
+            {
+                ShadowFrame frame;
+                int ticksAhead = i * (recorder.DelayTicks - 1) / (PathPointCount - 1);
+                if (!recorder.TryPeek(ticksAhead, out frame))
+                {
+                    _pathLine.enabled = false;
+                    return;
+                }
+                length += (frame.Position - previous).magnitude;
+                previous = frame.Position;
+                _pathLine.SetPosition(i, new Vector3(previous.x, previous.y, 0f));
+            }
+
+            _pathLine.enabled = length > 0.6f;
         }
 
         /// <summary>발 아래쪽에 위아래 방향으로 맞닿은 면이 있으면 땅에 서 있는 것으로 본다.</summary>

@@ -32,7 +32,7 @@ namespace SteamGame.Prototype
         }
 
         /// <summary>조명 설정과 상관없이 색이 그대로 보이는 스프라이트 재질.</summary>
-        private static Material UnlitMaterial
+        public static Material UnlitMaterial
         {
             get
             {
