@@ -24,6 +24,8 @@ namespace SteamGame.Prototype
         Shop = 2,
         Puzzle = 3,
         Boss = 4,
+        /// <summary>판을 시작하기 전에 머무는 거점. 영구 강화를 산다.</summary>
+        Hub = 5,
     }
 
     /// <summary>만들어진 방의 정보.</summary>
@@ -82,6 +84,9 @@ namespace SteamGame.Prototype
                     break;
                 case RoomType.Puzzle:
                     BuildPuzzleRoom(parent, layout);
+                    break;
+                case RoomType.Hub:
+                    BuildHubRoom(layout);
                     break;
                 default:
                     BuildMobRoom(parent, layout, stage, withDummy);
@@ -160,6 +165,20 @@ namespace SteamGame.Prototype
             layout.ShopSlots.Add(new Vector2(14f, GroundTop));
             layout.ShopSlots.Add(new Vector2(19f, GroundTop));
             layout.ExitPosition = new Vector2(26f, GroundTop);
+            layout.Width = width;
+        }
+
+        /// <summary>거점: 적이 없고 영구 강화 받침대가 놓인 방. 받침대 자리는 ShopSlots에 담는다.</summary>
+        private static void BuildHubRoom(StageLayout layout)
+        {
+            const float width = 34f;
+            Ground(0f, width);
+            layout.PlayerSpawn = new Vector2(3f, GroundTop);
+            for (int i = 0; i < MetaProgress.Upgrades.Length; i++)
+            {
+                layout.ShopSlots.Add(new Vector2(8f + i * 5f, GroundTop));
+            }
+            layout.ExitPosition = new Vector2(30f, GroundTop);
             layout.Width = width;
         }
 

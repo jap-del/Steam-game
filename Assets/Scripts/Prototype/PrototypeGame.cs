@@ -10,6 +10,7 @@ namespace SteamGame.Prototype
     /// 방, 플레이어, 분신, 적을 코드로 만들어 준다.
     /// 한 스테이지는 방 여섯 개(전투, 전투, 중간 보스, 상점, 퍼즐 또는 전투, 보스)이고,
     /// 보스방까지 깨면 강화를 하나 고른 뒤 다음 스테이지로 간다.
+    /// 판은 거점에서 시작한다. 적을 잡아 모은 그림자 조각은 죽어도 남고, 거점에서 영구 강화에 쓴다.
     /// </summary>
     public sealed class PrototypeGame : MonoBehaviour
     {
@@ -24,12 +25,17 @@ namespace SteamGame.Prototype
         private const int HealPrice = 15;
         private const int UpgradePrice = 40;
         private const float PlateHalfWidth = 0.9f;
+        private const int ShardsPerEnemy = 1;
+        private const int ShardsPerMidBoss = 5;
+        private const int ShardsPerBoss = 10;
+        private const float ResetConfirmWindow = 2f;
 
         private static readonly Color DoorLockedColor = new Color(0.45f, 0.2f, 0.2f, 1f);
         private static readonly Color DoorOpenColor = new Color(0.3f, 0.9f, 0.5f, 1f);
         private static readonly Color GoldColor = new Color(1f, 0.85f, 0.3f, 1f);
         private static readonly Color PlateIdleColor = new Color(0.2f, 0.4f, 0.5f, 1f);
         private static readonly Color PlatePressedColor = new Color(0.4f, 0.95f, 1f, 1f);
+        private static readonly Color ShardColor = new Color(0.72f, 0.6f, 1f, 1f);
 
         private static PrototypeGame _instance;
 
@@ -54,6 +60,14 @@ namespace SteamGame.Prototype
             public SpriteRenderer Pedestal;
         }
 
+        /// <summary>거점에 놓인 영구 강화 받침대 하나.</summary>
+        private sealed class HubItem
+        {
+            public Vector2 Position;
+            public MetaUpgrade Upgrade;
+            public SpriteRenderer Pedestal;
+        }
+
         /// <summary>퍼즐방의 발판 하나.</summary>
         private sealed class Plate
         {
@@ -66,12 +80,18 @@ namespace SteamGame.Prototype
         private readonly List<Popup> _popups = new List<Popup>();
         private readonly List<ShopItem> _shopItems = new List<ShopItem>();
         private readonly List<Plate> _plates = new List<Plate>();
+        private readonly List<HubItem> _hubItems = new List<HubItem>();
         private GameObject _root;
         private StageLayout _layout;
         private PlayerController _player;
         private SpriteRenderer _door;
         private Enemy _boss;
         private ShopItem _nearItem;
+        private HubItem _nearHubItem;
+        private string _lastRunSummary;
+        private int _shards;
+        private int _runShards;
+        private float _resetArmedUntil;
         private Camera _camera;
         private GUIStyle _hudStyle;
         private GUIStyle _popupStyle;
@@ -113,6 +133,7 @@ namespace SteamGame.Prototype
         private void OnDestroy()
         {
             Time.timeScale = 1f;
+            MetaProgress.Save();
         }
 
         private void Start()
@@ -154,6 +175,7 @@ namespace SteamGame.Prototype
 
             UpdatePlates();
             UpdateShop();
+            UpdateHub();
 
             bool doorOpen = IsDoorOpen();
             _door.color = doorOpen ? DoorOpenColor : DoorLockedColor;
@@ -168,13 +190,27 @@ namespace SteamGame.Prototype
 
         // ---- 판, 스테이지, 방 ----
 
-        /// <summary>새 판을 시작한다. 강화, 골드, 진행이 모두 처음으로 돌아간다.</summary>
+        /// <summary>
+        /// 새 판을 거점에서 시작한다. 판 안의 강화, 골드, 진행은 처음으로 돌아가고
+        /// 그림자 조각과 영구 강화만 남는다.
+        /// </summary>
         private void StartRun()
         {
+            // 방 번호 0은 거점이다. 1 이상이면 판을 하던 중에 죽었거나 다시 시작한 것이다.
+            if (_room >= 1)
+            {
+                _lastRunSummary = "지난 판: " + _stage + "-" + _room + "까지 갔고 " + MetaProgress.CurrencyName + " " + _runShards + "개를 모았다";
+            }
+
+            MetaProgress.Save();
+            _shards = MetaProgress.Shards;
+            _runShards = 0;
+
             Stats = new RunStats();
+            MetaProgress.ApplyAll(Stats);
             _stage = 1;
-            _room = 1;
-            _gold = 0;
+            _room = 0;
+            _gold = Stats.StartGold;
             _pincers = 0;
             _kills = 0;
             BuildRoom(Stats.MaxHealth);
@@ -185,6 +221,7 @@ namespace SteamGame.Prototype
         {
             switch (room)
             {
+                case 0: return RoomType.Hub;
                 case 3: return RoomType.MidBoss;
                 case 4: return RoomType.Shop;
                 case 5: return Random.value < 0.5f ? RoomType.Puzzle : RoomType.Mob;
@@ -201,8 +238,16 @@ namespace SteamGame.Prototype
                 case RoomType.Shop: return "상점";
                 case RoomType.Puzzle: return "퍼즐방";
                 case RoomType.Boss: return "보스방";
+                case RoomType.Hub: return "거점";
                 default: return "전투방";
             }
+        }
+
+        /// <summary>화면에 보여 줄 방 이름. 거점에는 스테이지 번호를 붙이지 않는다.</summary>
+        private string RoomLabel()
+        {
+            if (_layout.Type == RoomType.Hub) return RoomName(RoomType.Hub);
+            return _stage + "-" + _room + " " + RoomName(_layout.Type);
         }
 
         private void BuildRoom(int playerHealth)
@@ -212,9 +257,11 @@ namespace SteamGame.Prototype
             _popups.Clear();
             _shopItems.Clear();
             _plates.Clear();
+            _hubItems.Clear();
             _choices = null;
             _boss = null;
             _nearItem = null;
+            _nearHubItem = null;
             _puzzleSolved = false;
             _roomCleared = false;
             Time.timeScale = 1f;
@@ -259,7 +306,8 @@ namespace SteamGame.Prototype
             _door = PrototypeArt.CreateBox("ExitDoor", parent, FeetToCenter(_layout.ExitPosition, doorSize), doorSize, DoorLockedColor, 1);
 
             SetUpCamera(playerGo.transform);
-            ShowPopup(_player.Position + Vector2.up * 2.2f, _stage + "-" + _room + " " + RoomName(_layout.Type), Color.white);
+            BuildHub(parent);
+            ShowPopup(_player.Position + Vector2.up * 2.2f, RoomLabel(), Color.white);
         }
 
         private float HealthFor(EnemyKind kind)
@@ -324,13 +372,14 @@ namespace SteamGame.Prototype
 
         private bool IsDoorOpen()
         {
-            // 상점과 퍼즐방은 언제든 나갈 수 있다. 나머지는 적을 모두 잡아야 열린다.
-            if (_layout.Type == RoomType.Shop || _layout.Type == RoomType.Puzzle) return true;
+            // 거점, 상점, 퍼즐방은 언제든 나갈 수 있다. 나머지는 적을 모두 잡아야 열린다.
+            if (_layout.Type == RoomType.Hub || _layout.Type == RoomType.Shop || _layout.Type == RoomType.Puzzle) return true;
             return _enemies.Count == 0;
         }
 
         private void LeaveRoom()
         {
+            MetaProgress.Save();
             if (_room < RoomsPerStage)
             {
                 _room++;
@@ -398,7 +447,7 @@ namespace SteamGame.Prototype
 
         private void BuildShop(Transform parent)
         {
-            if (_layout.ShopSlots.Count == 0) return;
+            if (_layout.Type != RoomType.Shop || _layout.ShopSlots.Count == 0) return;
 
             // 첫 자리는 항상 체력 회복, 나머지는 무작위 강화.
             List<Upgrade> upgrades = UpgradePool.Pick(Stats, _layout.ShopSlots.Count - 1);
@@ -444,9 +493,14 @@ namespace SteamGame.Prototype
             }
         }
 
-        /// <summary>플레이어가 상호작용 키를 눌렀다. 지금은 상점 물건 사기에만 쓴다.</summary>
+        /// <summary>플레이어가 상호작용 키를 눌렀다. 상점 물건이나 거점의 영구 강화를 산다.</summary>
         public void OnInteract()
         {
+            if (_nearHubItem != null && _player != null)
+            {
+                BuyHubItem(_nearHubItem);
+                return;
+            }
             if (_nearItem == null || _nearItem.Sold || _player == null) return;
 
             Vector2 above = _player.Position + Vector2.up * 1.6f;
@@ -463,6 +517,118 @@ namespace SteamGame.Prototype
             else _nearItem.Upgrade.Apply(Stats, _player);
             ShowPopup(above, _nearItem.Title + " 구매", new Color(0.6f, 1f, 0.7f, 1f));
             _nearItem = null;
+        }
+
+        // ---- 거점과 영구 강화 ----
+
+        private void BuildHub(Transform parent)
+        {
+            if (_layout.Type != RoomType.Hub) return;
+
+            for (int i = 0; i < _layout.ShopSlots.Count && i < MetaProgress.Upgrades.Length; i++)
+            {
+                var item = new HubItem();
+                item.Position = _layout.ShopSlots[i];
+                item.Upgrade = MetaProgress.Upgrades[i];
+                Vector2 size = new Vector2(1f, 1f);
+                item.Pedestal = PrototypeArt.CreateBox("HubItem", parent, FeetToCenter(item.Position, size), size, HubItemColor(item.Upgrade), 2);
+                _hubItems.Add(item);
+            }
+        }
+
+        private static Color HubItemColor(MetaUpgrade upgrade)
+        {
+            bool maxed = MetaProgress.LevelOf(upgrade) >= upgrade.MaxLevel;
+            return maxed ? new Color(0.25f, 0.25f, 0.3f, 1f) : ShardColor;
+        }
+
+        private void UpdateHub()
+        {
+            _nearHubItem = null;
+            if (_hubItems.Count == 0) return;
+
+            for (int i = 0; i < _hubItems.Count; i++)
+            {
+                HubItem item = _hubItems[i];
+                if (Mathf.Abs(_player.Position.x - item.Position.x) < 1.2f && Mathf.Abs(_player.Feet.y - item.Position.y) < 1.5f)
+                {
+                    _nearHubItem = item;
+                }
+            }
+
+            // 테스트용: 거점에서 Delete(맥에서는 delete 키)를 두 번 누르면 저장을 지운다.
+            Keyboard keyboard = Keyboard.current;
+            if (keyboard != null && (keyboard.deleteKey.wasPressedThisFrame || keyboard.backspaceKey.wasPressedThisFrame))
+            {
+                if (Time.unscaledTime <= _resetArmedUntil)
+                {
+                    _resetArmedUntil = 0f;
+                    MetaProgress.ResetAll();
+                    _lastRunSummary = "저장을 지웠다";
+                    _restartRequested = true;
+                }
+                else
+                {
+                    _resetArmedUntil = Time.unscaledTime + ResetConfirmWindow;
+                    ShowPopup(_player.Position + Vector2.up * 1.6f, "한 번 더 누르면 저장이 지워진다", new Color(1f, 0.4f, 0.4f, 1f));
+                }
+            }
+        }
+
+        private void BuyHubItem(HubItem item)
+        {
+            Vector2 above = _player.Position + Vector2.up * 1.6f;
+            int level = MetaProgress.LevelOf(item.Upgrade);
+            if (level >= item.Upgrade.MaxLevel)
+            {
+                ShowPopup(above, "이미 최대 단계다", Color.white);
+                return;
+            }
+
+            int price = item.Upgrade.Costs[level];
+            if (_shards < price)
+            {
+                ShowPopup(above, MetaProgress.CurrencyName + "이 부족하다", new Color(1f, 0.4f, 0.4f, 1f));
+                return;
+            }
+
+            _shards -= price;
+            MetaProgress.Shards = _shards;
+            MetaProgress.SetLevel(item.Upgrade, level + 1);
+            MetaProgress.Save();
+
+            // 산 강화는 바로 이번 판부터 적용된다.
+            item.Upgrade.ApplyOnce(Stats);
+            _gold = Stats.StartGold;
+            _player.Heal(Stats.MaxHealth);
+            item.Pedestal.color = HubItemColor(item.Upgrade);
+            ShowPopup(above, item.Upgrade.Title + " " + (level + 1) + "단계", new Color(0.6f, 1f, 0.7f, 1f));
+        }
+
+        private void DrawHubLabels()
+        {
+            for (int i = 0; i < _hubItems.Count; i++)
+            {
+                HubItem item = _hubItems[i];
+                Vector2 above = item.Position + Vector2.up * 2f;
+                int level = MetaProgress.LevelOf(item.Upgrade);
+                bool maxed = level >= item.Upgrade.MaxLevel;
+
+                DrawWorldLabel(above + Vector2.up * 0.6f, item.Upgrade.Title + " " + level + "/" + item.Upgrade.MaxLevel, Color.white, 300f);
+                if (maxed)
+                {
+                    DrawWorldLabel(above, "최대 단계", new Color(1f, 1f, 1f, 0.5f), 300f);
+                }
+                else
+                {
+                    int price = item.Upgrade.Costs[level];
+                    DrawWorldLabel(above, MetaProgress.CurrencyName + " " + price, _shards >= price ? ShardColor : new Color(1f, 0.4f, 0.4f, 1f), 300f);
+                }
+                if (item == _nearHubItem)
+                {
+                    DrawWorldLabel(above + Vector2.up * 1.3f, item.Upgrade.Description + (maxed ? "" : "  (E: 구매)"), new Color(0.8f, 1f, 0.85f, 1f), 900f);
+                }
+            }
         }
 
         // ---- 퍼즐 ----
@@ -514,6 +680,13 @@ namespace SteamGame.Prototype
             _kills++;
             _gold += enemy.GoldValue;
             ShowPopup((Vector2)enemy.transform.position + Vector2.up * 1.6f, "+" + enemy.GoldValue + " 골드", GoldColor);
+
+            // 그림자 조각은 죽어도 남는다. 바로 저장 값에 더해 둔다.
+            int shards = enemy.Kind == EnemyKind.Boss ? ShardsPerBoss : (enemy.Kind == EnemyKind.MidBoss ? ShardsPerMidBoss : ShardsPerEnemy);
+            _shards += shards;
+            _runShards += shards;
+            MetaProgress.Shards = _shards;
+            ShowPopup((Vector2)enemy.transform.position + Vector2.up * 2.2f, "+" + shards + " " + MetaProgress.CurrencyName, ShardColor);
             if (enemy == _boss) _boss = null;
 
             if (_enemies.Count == 0 && _player != null)
@@ -558,6 +731,8 @@ namespace SteamGame.Prototype
         {
             switch (_layout.Type)
             {
+                case RoomType.Hub:
+                    return "받침대 앞에서 E로 영구 강화 구매. 오른쪽 문으로 나가면 1-1 시작. (delete 두 번: 저장 지우기)";
                 case RoomType.Shop:
                     return "물건 앞에서 E로 구매. 오른쪽 문으로 나간다";
                 case RoomType.Puzzle:
@@ -613,9 +788,15 @@ namespace SteamGame.Prototype
                     : "대시 가능";
 
                 GUI.color = Color.white;
-                GUI.Label(new Rect(16f, 12f, 1000f, 28f), _stage + "-" + _room + " " + RoomName(_layout.Type) + "    체력 " + _player.Health + " / " + Stats.MaxHealth + "    골드 " + _gold, _hudStyle);
+                GUI.Label(new Rect(16f, 12f, 1200f, 28f), RoomLabel() + "    체력 " + _player.Health + " / " + Stats.MaxHealth + "    골드 " + _gold + "    " + MetaProgress.CurrencyName + " " + _shards, _hudStyle);
                 GUI.Label(new Rect(16f, 40f, 1000f, 28f), shadowState + "    " + dashState + "    처치 " + _kills + "    협공 " + _pincers, _hudStyle);
                 GUI.Label(new Rect(16f, 68f, 1400f, 28f), GoalText(), _hudStyle);
+                if (_layout.Type == RoomType.Hub && _lastRunSummary != null)
+                {
+                    GUI.color = ShardColor;
+                    GUI.Label(new Rect(16f, 96f, 1400f, 28f), _lastRunSummary, _hudStyle);
+                    GUI.color = Color.white;
+                }
             }
 
             GUI.color = new Color(1f, 1f, 1f, 0.7f);
@@ -631,6 +812,7 @@ namespace SteamGame.Prototype
             DrawBossBar();
             if (_camera == null) return;
             DrawShopLabels();
+            DrawHubLabels();
 
             for (int i = 0; i < _popups.Count; i++)
             {

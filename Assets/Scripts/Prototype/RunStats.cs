@@ -22,5 +22,8 @@ namespace SteamGame.Prototype
         /// <summary>분신 고정이 유지되는 시간과, 풀린 뒤 다시 쓸 수 있을 때까지의 시간.</summary>
         public float AnchorDuration = 3f;
         public float AnchorCooldown = 10f;
+
+        /// <summary>판을 시작할 때 들고 있는 골드. 거점의 영구 강화로 늘어난다.</summary>
+        public int StartGold = 0;
     }
 }
