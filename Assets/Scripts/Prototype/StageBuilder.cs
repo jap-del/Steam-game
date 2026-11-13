@@ -54,9 +54,13 @@ namespace SteamGame.Prototype
 
         private const float GroundDepth = 7f;
         private const float PlatformThickness = 0.5f;
+        /// <summary>밟을 수 있는 윗면에 얹는 이끼 띠의 두께. 그림에서 4픽셀이다.</summary>
+        private const float CapHeight = 0.25f;
 
         private static readonly Color SolidColor = new Color(0.32f, 0.34f, 0.42f, 1f);
         private static readonly Color BackdropColor = new Color(0.13f, 0.14f, 0.2f, 1f);
+        private static readonly Color CapColor = new Color(0.36f, 0.58f, 0.55f, 1f);
+        private static readonly Color FarWallColor = new Color(0.105f, 0.115f, 0.165f, 1f);
 
         private delegate float ChunkBuilder(Transform parent, float x, int stage, StageLayout layout);
 
@@ -93,11 +97,15 @@ namespace SteamGame.Prototype
                 float left = GroundSpans[i].x;
                 float right = GroundSpans[i].y;
                 Solid(parent, "Ground", new Vector2((left + right) * 0.5f, GroundTop - GroundDepth * 0.5f), new Vector2(right - left, GroundDepth));
+                Cap(parent, left, right, GroundTop);
             }
             GroundSpans.Clear();
 
             Solid(parent, "WallLeft", new Vector2(-0.5f, GroundTop + 8f), new Vector2(1f, 34f));
             Solid(parent, "WallRight", new Vector2(layout.Width + 0.5f, GroundTop + 8f), new Vector2(1f, 34f));
+
+            // 방 뒤쪽을 덮는 먼 벽. 타일을 두 배 크기로 깔아서 멀리 있는 것처럼 보이게 한다.
+            PixelSprites.CreateTiled("FarWall", parent, new Vector2(layout.Width * 0.5f, GroundTop + 6f), new Vector2(layout.Width + 40f, 40f), "Stone", PixelSprites.PixelsPerUnit * 0.5f, FarWallColor, -20);
             return layout;
         }
 
@@ -225,6 +233,7 @@ namespace SteamGame.Prototype
         {
             Ground(x, x + 30f);
             Solid(parent, "Terrace", new Vector2(x + 15f, GroundTop + 1f), new Vector2(12f, 2f));
+            Cap(parent, x + 9f, x + 21f, GroundTop + 2f);
             Spawn(layout, EnemyKind.Brute, x + 12.5f, 2f);
             Spawn(layout, EnemyKind.Brute, x + 18f, 2f);
             Spawn(layout, EnemyKind.Shooter, x + 26f, 0f);
@@ -280,12 +289,23 @@ namespace SteamGame.Prototype
             effector.useOneWay = true;
             effector.surfaceArc = 170f;
             collider.usedByEffector = true;
+            Cap(parent, centerX - width * 0.5f, centerX + width * 0.5f, GroundTop + height);
         }
 
         private static BoxCollider2D Solid(Transform parent, string name, Vector2 center, Vector2 size)
         {
-            SpriteRenderer renderer = PrototypeArt.CreateBox(name, parent, center, size, SolidColor, 0);
-            return renderer.gameObject.AddComponent<BoxCollider2D>();
+            SpriteRenderer renderer = PixelSprites.CreateTiled(name, parent, center, size, "Stone", PixelSprites.PixelsPerUnit, SolidColor, 0);
+            var collider = renderer.gameObject.AddComponent<BoxCollider2D>();
+            // 타일로 그린 스프라이트는 크기를 늘리지 않으므로 충돌체 크기를 직접 정한다.
+            collider.size = size;
+            collider.offset = Vector2.zero;
+            return collider;
+        }
+
+        /// <summary>밟을 수 있는 윗면에 이끼 띠를 얹는다. 충돌하지 않는다.</summary>
+        private static void Cap(Transform parent, float left, float right, float top)
+        {
+            PixelSprites.CreateTiled("Cap", parent, new Vector2((left + right) * 0.5f, top - CapHeight * 0.5f), new Vector2(right - left, CapHeight), "Cap", PixelSprites.PixelsPerUnit, CapColor, 1);
         }
 
         private static void Spawn(StageLayout layout, EnemyKind kind, float x, float heightAboveGround)
@@ -301,7 +321,7 @@ namespace SteamGame.Prototype
                 float pillarWidth = Random.Range(1f, 3f);
                 float pillarHeight = Random.Range(3f, 10f);
                 float centerX = x + Random.Range(1f, width - 1f);
-                PrototypeArt.CreateBox("Backdrop", parent, new Vector2(centerX, GroundTop + pillarHeight * 0.5f), new Vector2(pillarWidth, pillarHeight), BackdropColor, -10);
+                PixelSprites.CreateTiled("Backdrop", parent, new Vector2(centerX, GroundTop + pillarHeight * 0.5f), new Vector2(pillarWidth, pillarHeight), "Stone", PixelSprites.PixelsPerUnit, BackdropColor, -10);
             }
         }
     }
