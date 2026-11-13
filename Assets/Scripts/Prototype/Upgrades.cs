@@ -74,6 +74,10 @@ namespace SteamGame.Prototype
                 s => s.DashCooldown > 0.41f,
                 (s, p) => { s.DashCooldown -= 0.2f; }),
 
+            new Upgrade("끈질긴 그림자", "분신 고정 대기시간이 2초 줄어든다.",
+                s => s.AnchorCooldown > 4.01f,
+                (s, p) => { s.AnchorCooldown -= 2f; }),
+
             new Upgrade("단단한 몸", "최대 체력이 1 늘고 체력을 2 회복한다.",
                 null,
                 (s, p) => { s.MaxHealth += 1; p.Heal(2); }),

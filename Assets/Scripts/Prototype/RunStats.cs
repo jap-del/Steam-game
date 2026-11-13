@@ -18,5 +18,9 @@ namespace SteamGame.Prototype
         public float SwapShockwaveDamage = 0f;
 
         public float DashCooldown = 0.8f;
+
+        /// <summary>분신 고정이 유지되는 시간과, 풀린 뒤 다시 쓸 수 있을 때까지의 시간.</summary>
+        public float AnchorDuration = 3f;
+        public float AnchorCooldown = 10f;
     }
 }

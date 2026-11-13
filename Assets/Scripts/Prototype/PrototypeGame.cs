@@ -563,7 +563,7 @@ namespace SteamGame.Prototype
                 case RoomType.Puzzle:
                     return _puzzleSolved
                         ? "퍼즐 해결. 오른쪽 문으로 나간다"
-                        : "발판 두 개를 동시에 밟으면 보상. 분신이 한 발판에 왔을 때 S로 고정하고 다른 발판으로 가면 된다";
+                        : "발판 두 개를 동시에 밟으면 보상. 한 발판에 잠깐 서 있다가 다른 발판으로 가면 분신이 대신 밟아 준다. S로 분신을 3초간 고정해도 된다";
                 default:
                     return _enemies.Count > 0 ? "남은 적 " + _enemies.Count : "문이 열렸다. 오른쪽 끝의 초록 문으로 가자";
             }
@@ -602,7 +602,12 @@ namespace SteamGame.Prototype
                     : (_player.SwapCooldownRemaining > 0f
                         ? "자리 바꾸기 " + _player.SwapCooldownRemaining.ToString("0.0") + "초"
                         : "자리 바꾸기 가능");
-                if (_player.AreShadowsAnchored) shadowState += "    분신 고정 중";
+                if (_player.ShadowFill >= 1f)
+                {
+                    if (_player.AreShadowsAnchored) shadowState += "    분신 고정 중 " + _player.AnchorRemaining.ToString("0.0") + "초";
+                    else if (_player.AnchorCooldownRemaining > 0f) shadowState += "    분신 고정 " + _player.AnchorCooldownRemaining.ToString("0.0") + "초";
+                    else shadowState += "    분신 고정 가능";
+                }
                 string dashState = _player.DashCooldownRemaining > 0f
                     ? "대시 " + _player.DashCooldownRemaining.ToString("0.0") + "초"
                     : "대시 가능";

@@ -23,7 +23,7 @@ namespace SteamGame.Prototype
         private const float JumpBufferTime = 0.12f;
         private const float InvulnerableTime = 0.8f;
         private const float ShockwaveRadius = 2.2f;
-        private const int PathPointCount = 16;
+        private const int TrailDotCount = 10;
 
         /// <summary>분신 하나와, 그 분신이 따라 할 과거 기록.</summary>
         private sealed class ShadowSlot
@@ -37,7 +37,9 @@ namespace SteamGame.Prototype
 
         private readonly List<ShadowSlot> _shadows = new List<ShadowSlot>();
         private readonly ContactPoint2D[] _contacts = new ContactPoint2D[8];
-        private LineRenderer _pathLine;
+        private readonly List<SpriteRenderer> _trailDots = new List<SpriteRenderer>();
+        private float _anchorTimer;
+        private float _anchorCooldownTimer;
         private bool _shadowsAnchored;
         private PrototypeGame _game;
         private RunStats _stats;
@@ -71,6 +73,8 @@ namespace SteamGame.Prototype
         public float DashCooldownRemaining => Mathf.Max(0f, _dashCooldownTimer);
         public float ShadowFill => _shadows.Count > 0 ? _shadows[0].Recorder.Fill : 0f;
         public bool AreShadowsAnchored => _shadowsAnchored;
+        public float AnchorRemaining => Mathf.Max(0f, _anchorTimer);
+        public float AnchorCooldownRemaining => Mathf.Max(0f, _anchorCooldownTimer);
 
         public void Build(PrototypeGame game, RunStats stats, int startHealth)
         {
@@ -111,9 +115,21 @@ namespace SteamGame.Prototype
             }
             _shadows.Clear();
             _shadowsAnchored = false;
+            _anchorTimer = 0f;
 
-            if (_pathLine != null) Destroy(_pathLine.gameObject);
-            _pathLine = CreatePathLine();
+            for (int i = 0; i < _trailDots.Count; i++)
+            {
+                if (_trailDots[i] != null) Destroy(_trailDots[i].gameObject);
+            }
+            _trailDots.Clear();
+            for (int i = 0; i < TrailDotCount; i++)
+            {
+                // 분신이 앞으로 지나갈 길을 점으로 보여 준다.
+                float alpha = Mathf.Lerp(0.45f, 0.12f, i / (float)(TrailDotCount - 1));
+                SpriteRenderer dot = PrototypeArt.CreateBox("ShadowTrail", transform.parent, Vector2.zero, new Vector2(0.14f, 0.14f), new Color(0.7f, 0.5f, 1f, alpha), 6);
+                dot.enabled = false;
+                _trailDots.Add(dot);
+            }
 
             int baseTicks = Mathf.Max(1, Mathf.RoundToInt(_stats.ShadowDelaySeconds / Time.fixedDeltaTime));
             for (int i = 0; i < _stats.ShadowCount; i++)
@@ -165,6 +181,13 @@ namespace SteamGame.Prototype
             if (_swapTimer > 0f) _swapTimer -= Time.deltaTime;
             if (_dashCooldownTimer > 0f) _dashCooldownTimer -= Time.deltaTime;
             if (_jumpBufferTimer > 0f) _jumpBufferTimer -= Time.deltaTime;
+            if (_anchorCooldownTimer > 0f) _anchorCooldownTimer -= Time.deltaTime;
+
+            if (_shadowsAnchored)
+            {
+                _anchorTimer -= Time.deltaTime;
+                if (_anchorTimer <= 0f) ReleaseAnchor();
+            }
 
             if (_slashTimer > 0f)
             {
@@ -243,25 +266,38 @@ namespace SteamGame.Prototype
             if (jumpPressed) _jumpBufferTimer = JumpBufferTime;
             if (dashPressed) TryDash();
             if (attackPressed) TryAttack();
-            if (anchorPressed) ToggleAnchor();
+            if (anchorPressed) TryAnchor();
             if (swapPressed) TrySwap();
             if (interactPressed) _game.OnInteract();
         }
 
         /// <summary>
-        /// 분신을 지금 자리에 고정하거나 고정을 푼다.
+        /// 분신을 지금 자리에 잠깐 고정한다. 정해진 시간이 지나면 저절로 풀리고, 그 뒤로 대기시간이 돈다.
         /// 고정된 분신은 내가 공격할 때 함께 공격하므로, 적을 사이에 두면 바로 협공이 된다.
         /// </summary>
-        private void ToggleAnchor()
+        private void TryAnchor()
         {
+            if (_shadowsAnchored || _anchorCooldownTimer > 0f) return;
             if (_shadows.Count == 0 || !_shadows[0].Clone.IsActive) return;
 
-            _shadowsAnchored = !_shadowsAnchored;
+            _shadowsAnchored = true;
+            _anchorTimer = _stats.AnchorDuration;
             for (int i = 0; i < _shadows.Count; i++)
             {
-                _shadows[i].Clone.SetAnchored(_shadowsAnchored);
+                _shadows[i].Clone.SetAnchored(true);
             }
-            _game.ShowPopup(_shadows[0].Clone.Position + Vector2.up * 1.2f, _shadowsAnchored ? "분신 고정" : "고정 해제", new Color(0.75f, 0.6f, 1f, 1f));
+            _game.ShowPopup(_shadows[0].Clone.Position + Vector2.up * 1.2f, "분신 고정", new Color(0.75f, 0.6f, 1f, 1f));
+        }
+
+        private void ReleaseAnchor()
+        {
+            _shadowsAnchored = false;
+            _anchorTimer = 0f;
+            _anchorCooldownTimer = _stats.AnchorCooldown;
+            for (int i = 0; i < _shadows.Count; i++)
+            {
+                _shadows[i].Clone.SetAnchored(false);
+            }
         }
 
         private void TryDash()
@@ -391,62 +427,21 @@ namespace SteamGame.Prototype
             UpdateTrail();
         }
 
-        /// <summary>분신이 앞으로 지나갈 길을 보여 주는 얇고 흐린 선.</summary>
-        private LineRenderer CreatePathLine()
-        {
-            var go = new GameObject("ShadowPath");
-            go.transform.SetParent(transform.parent, false);
-            var line = go.AddComponent<LineRenderer>();
-            line.useWorldSpace = true;
-            line.positionCount = PathPointCount;
-            line.startWidth = 0.07f;
-            line.endWidth = 0.07f;
-            line.numCapVertices = 2;
-            line.numCornerVertices = 2;
-            // 분신 쪽은 조금 진하고, 나에게 가까워질수록 옅어진다.
-            line.startColor = new Color(0.7f, 0.5f, 1f, 0.45f);
-            line.endColor = new Color(0.7f, 0.5f, 1f, 0.05f);
-            line.sortingOrder = 6;
-            Material material = PrototypeArt.UnlitMaterial;
-            if (material != null) line.sharedMaterial = material;
-            line.enabled = false;
-            return line;
-        }
-
-        /// <summary>
-        /// 첫 번째 분신에서 시작해 분신이 앞으로 지나갈 길을 선 하나로 잇는다.
-        /// 고정 중이거나, 분신이 아직 없거나, 거의 움직이지 않았으면 숨긴다.
-        /// </summary>
+        /// <summary>첫 번째 분신이 앞으로 지나갈 길에 점을 찍는다. 고정 중이거나 분신이 아직 없으면 숨긴다.</summary>
         private void UpdateTrail()
         {
-            if (_pathLine == null) return;
-
             bool show = _shadows.Count > 0 && !_shadowsAnchored && _shadows[0].Clone.IsActive;
-            if (!show)
+            ShadowRecorder recorder = show ? _shadows[0].Recorder : null;
+            for (int i = 0; i < _trailDots.Count; i++)
             {
-                _pathLine.enabled = false;
-                return;
-            }
+                SpriteRenderer dot = _trailDots[i];
+                if (dot == null) continue;
 
-            ShadowRecorder recorder = _shadows[0].Recorder;
-            Vector2 previous = _shadows[0].Clone.Position;
-            float length = 0f;
-            _pathLine.SetPosition(0, new Vector3(previous.x, previous.y, 0f));
-            for (int i = 1; i < PathPointCount; i++)
-            {
-                ShadowFrame frame;
-                int ticksAhead = i * (recorder.DelayTicks - 1) / (PathPointCount - 1);
-                if (!recorder.TryPeek(ticksAhead, out frame))
-                {
-                    _pathLine.enabled = false;
-                    return;
-                }
-                length += (frame.Position - previous).magnitude;
-                previous = frame.Position;
-                _pathLine.SetPosition(i, new Vector3(previous.x, previous.y, 0f));
+                ShadowFrame frame = default;
+                bool visible = show && recorder.TryPeek((i + 1) * recorder.DelayTicks / (TrailDotCount + 1), out frame);
+                dot.enabled = visible;
+                if (visible) dot.transform.position = new Vector3(frame.Position.x, frame.Position.y, 0f);
             }
-
-            _pathLine.enabled = length > 0.6f;
         }
 
         /// <summary>발 아래쪽에 위아래 방향으로 맞닿은 면이 있으면 땅에 서 있는 것으로 본다.</summary>
