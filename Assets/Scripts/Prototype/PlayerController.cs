@@ -122,6 +122,26 @@ namespace SteamGame.Prototype
             }
         }
 
+        /// <summary>플레이어의 발 위치.</summary>
+        public Vector2 Feet => Position + new Vector2(0f, -BodySize.y * 0.5f);
+
+        /// <summary>나타나 있는 분신 중 하나라도 발이 그 범위 안에 있는지 확인한다. 퍼즐 발판에 쓴다.</summary>
+        public bool IsAnyShadowStandingAt(Vector2 point, float halfWidth, float tolerance)
+        {
+            for (int i = 0; i < _shadows.Count; i++)
+            {
+                ShadowClone clone = _shadows[i].Clone;
+                if (clone == null || !clone.IsActive) continue;
+
+                Vector2 feet = clone.Position + new Vector2(0f, -BodySize.y * 0.5f);
+                if (Mathf.Abs(feet.x - point.x) <= halfWidth && Mathf.Abs(feet.y - point.y) <= tolerance)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         public void Heal(int amount)
         {
             _health = Mathf.Min(_stats.MaxHealth, _health + amount);
@@ -167,6 +187,7 @@ namespace SteamGame.Prototype
             bool attackPressed = false;
             bool swapPressed = false;
             bool dashPressed = false;
+            bool interactPressed = false;
 
             if (keyboard != null)
             {
@@ -177,6 +198,7 @@ namespace SteamGame.Prototype
                 attackPressed |= keyboard.jKey.wasPressedThisFrame || keyboard.zKey.wasPressedThisFrame;
                 swapPressed |= keyboard.kKey.wasPressedThisFrame || keyboard.xKey.wasPressedThisFrame;
                 dashPressed |= keyboard.leftShiftKey.wasPressedThisFrame || keyboard.lKey.wasPressedThisFrame || keyboard.cKey.wasPressedThisFrame;
+                interactPressed |= keyboard.eKey.wasPressedThisFrame || keyboard.fKey.wasPressedThisFrame;
             }
 
             if (mouse != null)
@@ -196,6 +218,7 @@ namespace SteamGame.Prototype
                 attackPressed |= gamepad.buttonWest.wasPressedThisFrame;
                 swapPressed |= gamepad.buttonNorth.wasPressedThisFrame;
                 dashPressed |= gamepad.buttonEast.wasPressedThisFrame || gamepad.rightShoulder.wasPressedThisFrame;
+                interactPressed |= gamepad.leftShoulder.wasPressedThisFrame;
             }
 
             _moveInput = Mathf.Clamp(move, -1f, 1f);
@@ -210,6 +233,7 @@ namespace SteamGame.Prototype
             if (dashPressed) TryDash();
             if (attackPressed) TryAttack();
             if (swapPressed) TrySwap();
+            if (interactPressed) _game.OnInteract();
         }
 
         private void TryDash()

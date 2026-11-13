@@ -16,20 +16,35 @@ namespace SteamGame.Prototype
         }
     }
 
-    /// <summary>만들어진 스테이지의 정보.</summary>
+    /// <summary>방의 종류. 한 스테이지는 방 여섯 개로 이루어진다.</summary>
+    public enum RoomType
+    {
+        Mob = 0,
+        MidBoss = 1,
+        Shop = 2,
+        Puzzle = 3,
+        Boss = 4,
+    }
+
+    /// <summary>만들어진 방의 정보.</summary>
     public sealed class StageLayout
     {
+        public RoomType Type;
         public float Width;
         public Vector2 PlayerSpawn;
         public Vector2 ExitPosition;
         public bool HasDummy;
         public Vector2 DummyFeet;
         public readonly List<EnemySpawn> Enemies = new List<EnemySpawn>();
+        /// <summary>상점 물건이 놓일 자리 (발 위치).</summary>
+        public readonly List<Vector2> ShopSlots = new List<Vector2>();
+        /// <summary>퍼즐방의 발판 자리 (윗면 가운데).</summary>
+        public readonly List<Vector2> Plates = new List<Vector2>();
     }
 
     /// <summary>
-    /// 미리 정해 둔 구간(평지, 계단, 구덩이, 언덕, 탑, 섬)을 무작위 순서로 이어 붙여
-    /// 가로로 긴 스테이지를 만든다. 스테이지 번호가 클수록 구간이 많아진다.
+    /// 방을 만든다. 전투방은 미리 정해 둔 구간(평지, 계단, 구덩이, 언덕, 탑, 섬)을
+    /// 무작위 순서로 이어 붙이고, 보스방과 상점, 퍼즐방은 정해진 모양으로 만든다.
     /// </summary>
     public static class StageBuilder
     {
@@ -48,41 +63,30 @@ namespace SteamGame.Prototype
         // 바닥 조각. 맞닿은 조각은 하나의 충돌체로 합쳐서 이음매에 걸리지 않게 한다.
         private static readonly List<Vector2> GroundSpans = new List<Vector2>();
 
-        public static StageLayout Build(Transform parent, int stage)
+        public static StageLayout Build(Transform parent, RoomType type, int stage, bool withDummy)
         {
             var layout = new StageLayout();
+            layout.Type = type;
             GroundSpans.Clear();
-            float x = 0f;
 
-            // 시작 구간: 적이 없는 안전한 곳.
-            Ground(x, x + 14f);
-            layout.PlayerSpawn = new Vector2(x + 4f, GroundTop);
-            if (stage == 1)
+            switch (type)
             {
-                layout.HasDummy = true;
-                layout.DummyFeet = new Vector2(x + 10f, GroundTop);
+                case RoomType.MidBoss:
+                    BuildBossRoom(parent, layout, EnemyKind.MidBoss);
+                    break;
+                case RoomType.Boss:
+                    BuildBossRoom(parent, layout, EnemyKind.Boss);
+                    break;
+                case RoomType.Shop:
+                    BuildShopRoom(layout);
+                    break;
+                case RoomType.Puzzle:
+                    BuildPuzzleRoom(parent, layout);
+                    break;
+                default:
+                    BuildMobRoom(parent, layout, stage, withDummy);
+                    break;
             }
-            x += 14f;
-
-            ChunkBuilder[] chunks = { Flat, Steps, Pit, Terrace, Tower, Islands };
-            int count = Mathf.Min(6 + (stage - 1) * 2, 14);
-            int previous = -1;
-            for (int i = 0; i < count; i++)
-            {
-                int pick = Random.Range(0, chunks.Length);
-                if (pick == previous) pick = (pick + 1) % chunks.Length;
-                previous = pick;
-
-                float width = chunks[pick](parent, x, stage, layout);
-                Decorate(parent, x, width);
-                x += width;
-            }
-
-            // 끝 구간: 출구 문.
-            Ground(x, x + 16f);
-            layout.ExitPosition = new Vector2(x + 11f, GroundTop);
-            x += 16f;
-            layout.Width = x;
 
             for (int i = 0; i < GroundSpans.Count; i++)
             {
@@ -95,6 +99,93 @@ namespace SteamGame.Prototype
             Solid(parent, "WallLeft", new Vector2(-0.5f, GroundTop + 8f), new Vector2(1f, 34f));
             Solid(parent, "WallRight", new Vector2(layout.Width + 0.5f, GroundTop + 8f), new Vector2(1f, 34f));
             return layout;
+        }
+
+        // ---- 방 종류 ----
+
+        /// <summary>전투방: 안전한 시작 구간, 무작위 구간 몇 개, 출구 구간.</summary>
+        private static void BuildMobRoom(Transform parent, StageLayout layout, int stage, bool withDummy)
+        {
+            float x = 0f;
+            float startWidth = withDummy ? 13f : 8f;
+            Ground(x, x + startWidth);
+            layout.PlayerSpawn = new Vector2(x + 3f, GroundTop);
+            if (withDummy)
+            {
+                layout.HasDummy = true;
+                layout.DummyFeet = new Vector2(x + 9f, GroundTop);
+            }
+            x += startWidth;
+
+            ChunkBuilder[] chunks = { Flat, Steps, Pit, Terrace, Tower, Islands };
+            int count = stage >= 3 ? 3 : 2;
+            int previous = -1;
+            for (int i = 0; i < count; i++)
+            {
+                int pick = Random.Range(0, chunks.Length);
+                if (pick == previous) pick = (pick + 1) % chunks.Length;
+                previous = pick;
+
+                float width = chunks[pick](parent, x, stage, layout);
+                Decorate(parent, x, width);
+                x += width;
+            }
+
+            Ground(x, x + 10f);
+            layout.ExitPosition = new Vector2(x + 6.5f, GroundTop);
+            layout.Width = x + 10f;
+        }
+
+        /// <summary>보스방: 구덩이 없는 넓은 평지와 발판 두 개.</summary>
+        private static void BuildBossRoom(Transform parent, StageLayout layout, EnemyKind boss)
+        {
+            const float width = 40f;
+            Ground(0f, width);
+            Platform(parent, 11f, 2.2f, 4f);
+            Platform(parent, 29f, 2.2f, 4f);
+            Decorate(parent, 0f, width);
+            layout.PlayerSpawn = new Vector2(4f, GroundTop);
+            layout.Enemies.Add(new EnemySpawn(boss, new Vector2(27f, GroundTop)));
+            layout.ExitPosition = new Vector2(37f, GroundTop);
+            layout.Width = width;
+        }
+
+        /// <summary>상점: 물건 자리 세 개가 있는 작은 방.</summary>
+        private static void BuildShopRoom(StageLayout layout)
+        {
+            const float width = 30f;
+            Ground(0f, width);
+            layout.PlayerSpawn = new Vector2(3f, GroundTop);
+            layout.ShopSlots.Add(new Vector2(9f, GroundTop));
+            layout.ShopSlots.Add(new Vector2(14f, GroundTop));
+            layout.ShopSlots.Add(new Vector2(19f, GroundTop));
+            layout.ExitPosition = new Vector2(26f, GroundTop);
+            layout.Width = width;
+        }
+
+        /// <summary>퍼즐방: 떨어져 있는 발판 두 개를 동시에 밟아야 한다. 분신을 써야 풀 수 있다.</summary>
+        private static void BuildPuzzleRoom(Transform parent, StageLayout layout)
+        {
+            const float width = 44f;
+            Ground(0f, width);
+            Decorate(parent, 0f, width);
+            layout.PlayerSpawn = new Vector2(3f, GroundTop);
+            layout.Plates.Add(new Vector2(12f, GroundTop));
+
+            if (Random.value < 0.5f)
+            {
+                // 두 번째 발판이 높은 곳에 있는 변형.
+                Platform(parent, 25f, 1.8f, 3f);
+                Platform(parent, 31f, 3.4f, 4f);
+                layout.Plates.Add(new Vector2(31f, GroundTop + 3.4f));
+            }
+            else
+            {
+                layout.Plates.Add(new Vector2(30f, GroundTop));
+            }
+
+            layout.ExitPosition = new Vector2(40f, GroundTop);
+            layout.Width = width;
         }
 
         // ---- 구간들. 각 함수는 구간의 너비를 돌려준다. ----
