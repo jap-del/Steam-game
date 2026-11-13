@@ -23,6 +23,7 @@ namespace SteamGame.Prototype
         private const float JumpBufferTime = 0.12f;
         private const float InvulnerableTime = 0.8f;
         private const float ShockwaveRadius = 2.2f;
+        private const int TrailDotCount = 10;
 
         /// <summary>분신 하나와, 그 분신이 따라 할 과거 기록.</summary>
         private sealed class ShadowSlot
@@ -36,6 +37,8 @@ namespace SteamGame.Prototype
 
         private readonly List<ShadowSlot> _shadows = new List<ShadowSlot>();
         private readonly ContactPoint2D[] _contacts = new ContactPoint2D[8];
+        private readonly List<SpriteRenderer> _trailDots = new List<SpriteRenderer>();
+        private bool _shadowsAnchored;
         private PrototypeGame _game;
         private RunStats _stats;
         private Rigidbody2D _body;
@@ -67,6 +70,7 @@ namespace SteamGame.Prototype
         public float SwapCooldownRemaining => Mathf.Max(0f, _swapTimer);
         public float DashCooldownRemaining => Mathf.Max(0f, _dashCooldownTimer);
         public float ShadowFill => _shadows.Count > 0 ? _shadows[0].Recorder.Fill : 0f;
+        public bool AreShadowsAnchored => _shadowsAnchored;
 
         public void Build(PrototypeGame game, RunStats stats, int startHealth)
         {
@@ -106,6 +110,21 @@ namespace SteamGame.Prototype
                 if (_shadows[i].Clone != null) Destroy(_shadows[i].Clone.gameObject);
             }
             _shadows.Clear();
+            _shadowsAnchored = false;
+
+            for (int i = 0; i < _trailDots.Count; i++)
+            {
+                if (_trailDots[i] != null) Destroy(_trailDots[i].gameObject);
+            }
+            _trailDots.Clear();
+            for (int i = 0; i < TrailDotCount; i++)
+            {
+                // 분신이 앞으로 지나갈 길을 점으로 보여 준다.
+                float alpha = Mathf.Lerp(0.45f, 0.12f, i / (float)(TrailDotCount - 1));
+                SpriteRenderer dot = PrototypeArt.CreateBox("ShadowTrail", transform.parent, Vector2.zero, new Vector2(0.14f, 0.14f), new Color(0.7f, 0.5f, 1f, alpha), 6);
+                dot.enabled = false;
+                _trailDots.Add(dot);
+            }
 
             int baseTicks = Mathf.Max(1, Mathf.RoundToInt(_stats.ShadowDelaySeconds / Time.fixedDeltaTime));
             for (int i = 0; i < _stats.ShadowCount; i++)
@@ -188,6 +207,7 @@ namespace SteamGame.Prototype
             bool swapPressed = false;
             bool dashPressed = false;
             bool interactPressed = false;
+            bool anchorPressed = false;
 
             if (keyboard != null)
             {
@@ -199,6 +219,7 @@ namespace SteamGame.Prototype
                 swapPressed |= keyboard.kKey.wasPressedThisFrame || keyboard.xKey.wasPressedThisFrame;
                 dashPressed |= keyboard.leftShiftKey.wasPressedThisFrame || keyboard.lKey.wasPressedThisFrame || keyboard.cKey.wasPressedThisFrame;
                 interactPressed |= keyboard.eKey.wasPressedThisFrame || keyboard.fKey.wasPressedThisFrame;
+                anchorPressed |= keyboard.sKey.wasPressedThisFrame || keyboard.downArrowKey.wasPressedThisFrame || keyboard.qKey.wasPressedThisFrame;
             }
 
             if (mouse != null)
@@ -219,6 +240,7 @@ namespace SteamGame.Prototype
                 swapPressed |= gamepad.buttonNorth.wasPressedThisFrame;
                 dashPressed |= gamepad.buttonEast.wasPressedThisFrame || gamepad.rightShoulder.wasPressedThisFrame;
                 interactPressed |= gamepad.leftShoulder.wasPressedThisFrame;
+                anchorPressed |= gamepad.leftTrigger.wasPressedThisFrame;
             }
 
             _moveInput = Mathf.Clamp(move, -1f, 1f);
@@ -232,8 +254,25 @@ namespace SteamGame.Prototype
             if (jumpPressed) _jumpBufferTimer = JumpBufferTime;
             if (dashPressed) TryDash();
             if (attackPressed) TryAttack();
+            if (anchorPressed) ToggleAnchor();
             if (swapPressed) TrySwap();
             if (interactPressed) _game.OnInteract();
+        }
+
+        /// <summary>
+        /// 분신을 지금 자리에 고정하거나 고정을 푼다.
+        /// 고정된 분신은 내가 공격할 때 함께 공격하므로, 적을 사이에 두면 바로 협공이 된다.
+        /// </summary>
+        private void ToggleAnchor()
+        {
+            if (_shadows.Count == 0 || !_shadows[0].Clone.IsActive) return;
+
+            _shadowsAnchored = !_shadowsAnchored;
+            for (int i = 0; i < _shadows.Count; i++)
+            {
+                _shadows[i].Clone.SetAnchored(_shadowsAnchored);
+            }
+            _game.ShowPopup(_shadows[0].Clone.Position + Vector2.up * 1.2f, _shadowsAnchored ? "분신 고정" : "고정 해제", new Color(0.75f, 0.6f, 1f, 1f));
         }
 
         private void TryDash()
@@ -253,6 +292,15 @@ namespace SteamGame.Prototype
             _attackedThisTick = true;
             Combat.Slash(_body.position, _facing, _stats.PlayerDamage, HitSource.Player);
 
+            if (_shadowsAnchored)
+            {
+                float shadowDamage = _stats.PlayerDamage * _stats.ShadowDamageMultiplier;
+                for (int i = 0; i < _shadows.Count; i++)
+                {
+                    _shadows[i].Clone.AttackNow(_facing, shadowDamage);
+                }
+            }
+
             _slash.transform.localPosition = new Vector3(_facing * Combat.SlashReach, 0f, 0f);
             _slash.enabled = true;
             _slashTimer = 0.12f;
@@ -269,6 +317,8 @@ namespace SteamGame.Prototype
             transform.position = new Vector3(destination.x, destination.y, 0f);
             _body.linearVelocity = Vector2.zero;
             _dashTimer = 0f;
+            // 고정된 분신은 내가 있던 자리로 옮겨 가서 정말로 자리가 바뀐다.
+            if (_shadowsAnchored) _shadows[0].Clone.MoveTo(origin);
             _game.ShowPopup(destination + Vector2.up * 1.2f, "자리 바꾸기", new Color(0.75f, 0.6f, 1f, 1f));
 
             if (_stats.SwapShockwaveDamage > 0f)
@@ -348,6 +398,24 @@ namespace SteamGame.Prototype
                 {
                     _shadows[i].Clone.Replay(delayed, shadowDamage);
                 }
+            }
+            UpdateTrail();
+        }
+
+        /// <summary>첫 번째 분신이 앞으로 지나갈 길에 점을 찍는다. 고정 중이거나 분신이 아직 없으면 숨긴다.</summary>
+        private void UpdateTrail()
+        {
+            bool show = _shadows.Count > 0 && !_shadowsAnchored && _shadows[0].Clone.IsActive;
+            ShadowRecorder recorder = show ? _shadows[0].Recorder : null;
+            for (int i = 0; i < _trailDots.Count; i++)
+            {
+                SpriteRenderer dot = _trailDots[i];
+                if (dot == null) continue;
+
+                ShadowFrame frame = default;
+                bool visible = show && recorder.TryPeek((i + 1) * recorder.DelayTicks / (TrailDotCount + 1), out frame);
+                dot.enabled = visible;
+                if (visible) dot.transform.position = new Vector3(frame.Position.x, frame.Position.y, 0f);
             }
         }
 

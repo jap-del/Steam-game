@@ -41,6 +41,9 @@ namespace SteamGame.Prototype
         private const float BruteLungeTime = 0.28f;
         private const float BruteLungeSpeed = 11f;
         private const float BruteRecoverTime = 0.7f;
+        private const float BruteHopSpeed = 13.5f;
+        private const float BruteGapSpeed = 7.5f;
+        private const float BruteLeapWindupTime = 0.35f;
 
         private const float ShooterRange = 14f;
         private const float ShooterWindupTime = 0.5f;
@@ -86,6 +89,11 @@ namespace SteamGame.Prototype
         private int _patternIndex;
         private float _slamVelocityX;
         private float _airTime;
+        private float _jumpCooldown;
+        private float _gapTimer;
+        private int _gapDirection = 1;
+        private float _stuckTimer;
+        private float _lastX;
         private readonly float[] _lastHitTime = { -999f, -999f };
 
         public EnemyKind Kind { get; private set; }
@@ -209,37 +217,38 @@ namespace SteamGame.Prototype
             }
         }
 
-        /// <summary>돌진형: 다가간다, 번쩍인다, 돌진한다, 잠깐 멈춘다.</summary>
+        /// <summary>
+        /// 돌진형: 다가간다, 번쩍인다, 공격한다, 잠깐 멈춘다.
+        /// 같은 높이에서는 돌진하고, 플레이어가 위에 있으면 뛰어올라 덮친다.
+        /// 쫓아올 때는 턱을 뛰어넘고, 낭떠러지를 내려오고, 구덩이를 건넌다.
+        /// </summary>
         private float TickBrute(Vector2 toPlayer)
         {
             float distanceX = Mathf.Abs(toPlayer.x);
             float distanceY = Mathf.Abs(toPlayer.y);
+            if (_jumpCooldown > 0f) _jumpCooldown -= Time.fixedDeltaTime;
 
             switch (_state)
             {
                 case State.Idle:
-                    if (distanceX < BruteNoticeRange && distanceY < 3.5f) _state = State.Chase;
+                    if (distanceX < BruteNoticeRange && distanceY < 7f) _state = State.Chase;
                     return 0f;
 
                 case State.Chase:
-                    _facing = toPlayer.x >= 0f ? 1 : -1;
-                    if (distanceX > BruteForgetRange)
-                    {
-                        _state = State.Idle;
-                        return 0f;
-                    }
-                    if (distanceX <= BruteAttackRange && distanceY < 1.6f)
-                    {
-                        Enter(State.Windup, BruteWindupTime);
-                        _game.ShowPopup(_body.position + Vector2.up * (_size.y * 0.5f + 0.9f), "!", WarningColor);
-                        return 0f;
-                    }
-                    return distanceX > 0.4f && HasGroundAhead() ? _facing * MoveSpeed : 0f;
+                    return ChaseAsBrute(toPlayer, distanceX, distanceY);
 
                 case State.Windup:
-                    // 돌진 방향은 예고를 시작할 때 정해진다. 그래서 뒤로 넘어가면 피할 수 있다.
+                    // 공격 방향은 예고를 시작할 때 정해진다. 그래서 뒤로 넘어가면 피할 수 있다.
                     _stateTimer -= Time.fixedDeltaTime;
-                    if (_stateTimer <= 0f) Enter(State.Attack, BruteLungeTime);
+                    if (_stateTimer > 0f) return 0f;
+
+                    if (_pattern == Pattern.Slam)
+                    {
+                        StartLeap(toPlayer);
+                        Enter(State.Attack, 2.5f);
+                        return _slamVelocityX;
+                    }
+                    Enter(State.Attack, BruteLungeTime);
                     return 0f;
 
                 case State.Attack:
@@ -248,6 +257,19 @@ namespace SteamGame.Prototype
                         _player.TakeDamage(1, _body.position.x);
                     }
                     _stateTimer -= Time.fixedDeltaTime;
+
+                    if (_pattern == Pattern.Slam)
+                    {
+                        _airTime += Time.fixedDeltaTime;
+                        bool landed = _airTime > 0.25f && _body.linearVelocity.y <= 0.1f && IsStandingOnGround();
+                        if (landed || _stateTimer <= 0f)
+                        {
+                            Enter(State.Recover, BruteRecoverTime);
+                            return 0f;
+                        }
+                        return _slamVelocityX;
+                    }
+
                     if (_stateTimer <= 0f) Enter(State.Recover, BruteRecoverTime);
                     return HasGroundAhead() ? _facing * BruteLungeSpeed : 0f;
 
@@ -256,6 +278,128 @@ namespace SteamGame.Prototype
                     if (_stateTimer <= 0f) _state = State.Chase;
                     return 0f;
             }
+        }
+
+        private float ChaseAsBrute(Vector2 toPlayer, float distanceX, float distanceY)
+        {
+            if (distanceX > BruteForgetRange)
+            {
+                _state = State.Idle;
+                return 0f;
+            }
+
+            bool grounded = IsStandingOnGround();
+            if (!grounded)
+            {
+                // 공중: 구덩이를 건너는 중이면 그 방향으로, 아니면 플레이어 쪽으로 움직인다.
+                if (_gapTimer > 0f)
+                {
+                    _gapTimer -= Time.fixedDeltaTime;
+                    return _gapDirection * BruteGapSpeed;
+                }
+                _facing = toPlayer.x >= 0f ? 1 : -1;
+                return distanceX > 0.4f ? _facing * MoveSpeed : 0f;
+            }
+
+            _gapTimer = 0f;
+            _facing = toPlayer.x >= 0f ? 1 : -1;
+            Vector2 warningPosition = _body.position + Vector2.up * (_size.y * 0.5f + 0.9f);
+
+            // 같은 높이에서 가까우면 돌진을 예고한다.
+            if (distanceX <= BruteAttackRange && distanceY < 1.6f)
+            {
+                _pattern = Pattern.Lunge;
+                Enter(State.Windup, BruteWindupTime);
+                _game.ShowPopup(warningPosition, "!", WarningColor);
+                return 0f;
+            }
+
+            // 플레이어가 위에 있으면 뛰어올라 덮치는 공격을 예고한다.
+            if (toPlayer.y > 1.2f && distanceX < 5f && _jumpCooldown <= 0f)
+            {
+                _pattern = Pattern.Slam;
+                _jumpCooldown = 1.5f;
+                Enter(State.Windup, BruteLeapWindupTime);
+                _game.ShowPopup(warningPosition, "!", WarningColor);
+                return 0f;
+            }
+
+            if (distanceX <= 0.4f) return 0f;
+
+            // 앞에 턱이나 벽이 있으면 뛰어넘는다.
+            if (IsWallAhead() && _jumpCooldown <= 0f)
+            {
+                Hop();
+                return _facing * MoveSpeed;
+            }
+
+            if (HasGroundAhead())
+            {
+                // 걷고 있는데 제자리라면 어딘가에 걸린 것이다. 뛰어서 빠져나온다.
+                bool stuck = Mathf.Abs(_body.position.x - _lastX) < 0.01f;
+                _lastX = _body.position.x;
+                _stuckTimer = stuck ? _stuckTimer + Time.fixedDeltaTime : 0f;
+                if (_stuckTimer > 0.4f && _jumpCooldown <= 0f)
+                {
+                    _stuckTimer = 0f;
+                    Hop();
+                }
+                return _facing * MoveSpeed;
+            }
+
+            // 앞이 낭떠러지다. 아래에 땅이 있으면 그냥 내려간다.
+            Vector2 ahead = _body.position + new Vector2(_facing * (_size.x * 0.5f + 0.35f), -_size.y * 0.5f + 0.1f);
+            if (Combat.SolidDistanceBelow(ahead, 12f) >= 0f)
+            {
+                return _facing * MoveSpeed;
+            }
+
+            // 구덩이다. 건너편에 땅이 있으면 뛰어서 건넌다.
+            if (_jumpCooldown <= 0f && HasLandingAcross())
+            {
+                Hop();
+                _gapTimer = 0.9f;
+                _gapDirection = _facing;
+                return _facing * BruteGapSpeed;
+            }
+            return 0f;
+        }
+
+        private void Hop()
+        {
+            _body.linearVelocity = new Vector2(_body.linearVelocity.x, BruteHopSpeed);
+            _jumpCooldown = 0.7f;
+        }
+
+        /// <summary>플레이어가 지금 있는 곳을 향해 포물선으로 뛰어오른다.</summary>
+        private void StartLeap(Vector2 toPlayer)
+        {
+            float gravity = Mathf.Abs(Physics2D.gravity.y) * BossGravityScale;
+            float rise = Mathf.Max(toPlayer.y, 0f) + 1.2f;
+            float jumpSpeed = Mathf.Clamp(Mathf.Sqrt(2f * gravity * rise), 10f, 18f);
+            float airTime = 1.5f * jumpSpeed / gravity;
+            _slamVelocityX = Mathf.Clamp(toPlayer.x / airTime, -9f, 9f);
+            _body.linearVelocity = new Vector2(_slamVelocityX, jumpSpeed);
+            _airTime = 0f;
+        }
+
+        /// <summary>발 앞, 정강이 높이에 지형이 있는지 본다.</summary>
+        private bool IsWallAhead()
+        {
+            Vector2 probe = _body.position + new Vector2(_facing * (_size.x * 0.5f + 0.25f), -_size.y * 0.5f + 0.35f);
+            return Combat.IsSolidAt(probe);
+        }
+
+        /// <summary>구덩이 건너편, 뛰어서 닿을 거리에 땅이 있는지 본다.</summary>
+        private bool HasLandingAcross()
+        {
+            float feetY = _body.position.y - _size.y * 0.5f - 0.3f;
+            float edgeX = _body.position.x + _facing * (_size.x * 0.5f);
+            for (float distance = 2.5f; distance <= 5.5f; distance += 0.5f)
+            {
+                if (Combat.IsSolidAt(new Vector2(edgeX + _facing * distance, feetY))) return true;
+            }
+            return false;
         }
 
         /// <summary>원거리형: 제자리에서 번쩍인 뒤 플레이어가 있던 쪽으로 탄을 쏜다.</summary>
@@ -311,7 +455,7 @@ namespace SteamGame.Prototype
                     _cooldown -= Time.fixedDeltaTime;
                     if (_cooldown <= 0f)
                     {
-                        _pattern = NextPattern();
+                        _pattern = NextPattern(toPlayer);
                         Enter(State.Windup, BossWindupTime);
                         _game.ShowPopup(_body.position + Vector2.up * (_size.y * 0.5f + 0.9f), PatternHint(_pattern), WarningColor);
                         return 0f;
@@ -330,10 +474,14 @@ namespace SteamGame.Prototype
                     }
                     if (_pattern == Pattern.Slam)
                     {
-                        // 플레이어가 지금 있는 자리로 뛰어오른다.
+                        // 플레이어가 지금 있는 자리로 뛰어오른다. 위에 있으면 더 높이 뛴다.
                         float gravity = Mathf.Abs(Physics2D.gravity.y) * BossGravityScale;
-                        _slamVelocityX = Mathf.Clamp(toPlayer.x / BossSlamAirTime, -12f, 12f);
-                        _body.linearVelocity = new Vector2(_slamVelocityX, gravity * BossSlamAirTime * 0.5f);
+                        float flatSpeed = gravity * BossSlamAirTime * 0.5f;
+                        float reachSpeed = Mathf.Sqrt(2f * gravity * (Mathf.Max(toPlayer.y, 0f) + 1.5f));
+                        float jumpSpeed = Mathf.Clamp(Mathf.Max(flatSpeed, reachSpeed), flatSpeed, 19f);
+                        float airTime = 2f * jumpSpeed / gravity * 0.85f;
+                        _slamVelocityX = Mathf.Clamp(toPlayer.x / airTime, -12f, 12f);
+                        _body.linearVelocity = new Vector2(_slamVelocityX, jumpSpeed);
                         _airTime = 0f;
                         Enter(State.Attack, 3f);
                         return _slamVelocityX;
@@ -375,14 +523,20 @@ namespace SteamGame.Prototype
             }
         }
 
-        private Pattern NextPattern()
+        private Pattern NextPattern(Vector2 toPlayer)
         {
+            _patternIndex++;
+
+            // 플레이어가 발판 위에 있으면 돌진은 닿지 않는다. 뛰어올라 덮치거나 탄을 쏜다.
+            if (toPlayer.y > 1.5f)
+            {
+                return _patternIndex % 2 == 0 ? Pattern.Slam : Pattern.Spread;
+            }
+
             Pattern[] cycle = Kind == EnemyKind.Boss
                 ? new[] { Pattern.Lunge, Pattern.Spread, Pattern.Slam }
                 : new[] { Pattern.Lunge, Pattern.Spread };
-            Pattern pattern = cycle[_patternIndex % cycle.Length];
-            _patternIndex++;
-            return pattern;
+            return cycle[_patternIndex % cycle.Length];
         }
 
         private static string PatternHint(Pattern pattern)
@@ -420,8 +574,11 @@ namespace SteamGame.Prototype
             }
 
             Vector2 feet = _body.position + new Vector2(0f, -_size.y * 0.5f + 0.35f);
-            _game.SpawnProjectile(feet + new Vector2(_size.x * 0.5f, 0f), new Vector2(WaveSpeed, 0f), 0.6f);
-            _game.SpawnProjectile(feet - new Vector2(_size.x * 0.5f, 0f), new Vector2(-WaveSpeed, 0f), 0.6f);
+            if (Kind == EnemyKind.Boss)
+            {
+                _game.SpawnProjectile(feet + new Vector2(_size.x * 0.5f, 0f), new Vector2(WaveSpeed, 0f), 0.6f);
+                _game.SpawnProjectile(feet - new Vector2(_size.x * 0.5f, 0f), new Vector2(-WaveSpeed, 0f), 0.6f);
+            }
             _game.ShowBlast(feet, _size.x * 0.5f + 0.8f, new Color(1f, 0.95f, 0.3f, 0.35f));
         }
 

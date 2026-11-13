@@ -56,6 +56,22 @@ namespace SteamGame.Prototype
             return true;
         }
 
+        /// <summary>
+        /// 분신이 ticksAhead 틱 뒤에 재현할 상태를 미리 본다. 0이면 바로 다음에 재현할 상태다.
+        /// 기록이 아직 다 차지 않았으면 false.
+        /// </summary>
+        public bool TryPeek(int ticksAhead, out ShadowFrame frame)
+        {
+            if (_count < _frames.Length || ticksAhead < 0 || ticksAhead >= _frames.Length)
+            {
+                frame = default;
+                return false;
+            }
+
+            frame = _frames[(_head + ticksAhead) % _frames.Length];
+            return true;
+        }
+
         public void Clear()
         {
             _head = 0;

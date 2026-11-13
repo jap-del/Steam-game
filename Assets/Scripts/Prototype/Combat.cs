@@ -31,19 +31,56 @@ namespace SteamGame.Prototype
             return Apply(hits, damage, source, center);
         }
 
-        /// <summary>그 지점이 바닥이나 벽 같은 지형 안인지 확인한다. 적과 플레이어는 지형으로 치지 않는다.</summary>
+        /// <summary>바닥이나 벽 같은 지형인지 확인한다. 적과 플레이어는 지형으로 치지 않는다.</summary>
+        private static bool IsSolid(Collider2D collider)
+        {
+            return !collider.isTrigger && collider.attachedRigidbody == null && collider.GetComponentInParent<Enemy>() == null;
+        }
+
+        /// <summary>그 지점이 지형 안인지 확인한다.</summary>
         public static bool IsSolidAt(Vector2 point)
         {
             Collider2D[] hits = Physics2D.OverlapPointAll(point);
             for (int i = 0; i < hits.Length; i++)
             {
-                Collider2D hit = hits[i];
-                if (!hit.isTrigger && hit.attachedRigidbody == null && hit.GetComponentInParent<Enemy>() == null)
-                {
-                    return true;
-                }
+                if (IsSolid(hits[i])) return true;
             }
             return false;
+        }
+
+        /// <summary>origin에서 아래로 가장 가까운 지형까지의 거리. maxDistance 안에 없으면 음수.</summary>
+        public static float SolidDistanceBelow(Vector2 origin, float maxDistance)
+        {
+            RaycastHit2D[] hits = Physics2D.RaycastAll(origin, Vector2.down, maxDistance);
+            float best = -1f;
+            for (int i = 0; i < hits.Length; i++)
+            {
+                if (hits[i].collider == null || !IsSolid(hits[i].collider)) continue;
+                if (best < 0f || hits[i].distance < best) best = hits[i].distance;
+            }
+            return best;
+        }
+
+        /// <summary>range 안에서 가장 가까운 적이 있는 방향(1 또는 -1). 적이 없으면 fallback.</summary>
+        public static int FacingToNearestEnemy(Vector2 origin, int fallback, float range)
+        {
+            Collider2D[] hits = Physics2D.OverlapCircleAll(origin, range);
+            float bestDistance = float.MaxValue;
+            int facing = fallback;
+            for (int i = 0; i < hits.Length; i++)
+            {
+                Enemy enemy = hits[i].GetComponentInParent<Enemy>();
+                if (enemy == null) continue;
+
+                float dx = enemy.transform.position.x - origin.x;
+                float distance = Mathf.Abs(dx);
+                if (distance < bestDistance && distance > 0.05f)
+                {
+                    bestDistance = distance;
+                    facing = dx >= 0f ? 1 : -1;
+                }
+            }
+            return facing;
         }
 
         private static int Apply(Collider2D[] hits, float damage, HitSource source, Vector2 origin)

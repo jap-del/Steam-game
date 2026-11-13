@@ -269,16 +269,23 @@ namespace SteamGame.Prototype
             }
         }
 
-        /// <summary>바닥에서 height만큼 높은 곳에 윗면이 오는 발판.</summary>
+        /// <summary>
+        /// 바닥에서 height만큼 높은 곳에 윗면이 오는 발판.
+        /// 아래에서는 뚫고 올라갈 수 있고 위에서는 밟고 설 수 있다. 적도 마찬가지다.
+        /// </summary>
         private static void Platform(Transform parent, float centerX, float height, float width)
         {
-            Solid(parent, "Platform", new Vector2(centerX, GroundTop + height - PlatformThickness * 0.5f), new Vector2(width, PlatformThickness));
+            BoxCollider2D collider = Solid(parent, "Platform", new Vector2(centerX, GroundTop + height - PlatformThickness * 0.5f), new Vector2(width, PlatformThickness));
+            var effector = collider.gameObject.AddComponent<PlatformEffector2D>();
+            effector.useOneWay = true;
+            effector.surfaceArc = 170f;
+            collider.usedByEffector = true;
         }
 
-        private static void Solid(Transform parent, string name, Vector2 center, Vector2 size)
+        private static BoxCollider2D Solid(Transform parent, string name, Vector2 center, Vector2 size)
         {
             SpriteRenderer renderer = PrototypeArt.CreateBox(name, parent, center, size, SolidColor, 0);
-            renderer.gameObject.AddComponent<BoxCollider2D>();
+            return renderer.gameObject.AddComponent<BoxCollider2D>();
         }
 
         private static void Spawn(StageLayout layout, EnemyKind kind, float x, float heightAboveGround)

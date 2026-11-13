@@ -563,7 +563,7 @@ namespace SteamGame.Prototype
                 case RoomType.Puzzle:
                     return _puzzleSolved
                         ? "퍼즐 해결. 오른쪽 문으로 나간다"
-                        : "발판 두 개를 동시에 밟으면 보상. 한 발판에 잠깐 서 있다가 다른 발판으로 가면 분신이 대신 밟아 준다";
+                        : "발판 두 개를 동시에 밟으면 보상. 분신이 한 발판에 왔을 때 S로 고정하고 다른 발판으로 가면 된다";
                 default:
                     return _enemies.Count > 0 ? "남은 적 " + _enemies.Count : "문이 열렸다. 오른쪽 끝의 초록 문으로 가자";
             }
@@ -602,6 +602,7 @@ namespace SteamGame.Prototype
                     : (_player.SwapCooldownRemaining > 0f
                         ? "자리 바꾸기 " + _player.SwapCooldownRemaining.ToString("0.0") + "초"
                         : "자리 바꾸기 가능");
+                if (_player.AreShadowsAnchored) shadowState += "    분신 고정 중";
                 string dashState = _player.DashCooldownRemaining > 0f
                     ? "대시 " + _player.DashCooldownRemaining.ToString("0.0") + "초"
                     : "대시 가능";
@@ -613,7 +614,7 @@ namespace SteamGame.Prototype
             }
 
             GUI.color = new Color(1f, 1f, 1f, 0.7f);
-            GUI.Label(new Rect(16f, Screen.height - 40f, 1600f, 28f), "이동 A/D 또는 방향키    점프 Space    공격 J 또는 마우스 왼쪽    대시 Shift    자리 바꾸기 K 또는 마우스 오른쪽    구매 E    다시 시작 R", _hudStyle);
+            GUI.Label(new Rect(16f, Screen.height - 40f, 1600f, 28f), "이동 A/D 또는 방향키    점프 Space    공격 J 또는 마우스 왼쪽    대시 Shift    자리 바꾸기 K 또는 마우스 오른쪽    분신 고정 S    구매 E    다시 시작 R", _hudStyle);
             GUI.color = Color.white;
 
             if (_choices != null)

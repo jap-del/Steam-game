@@ -55,7 +55,7 @@ namespace SteamGame.Prototype
                 (s, p) => { s.PincerMultiplier += 0.5f; }),
 
             new Upgrade("느긋한 협공", "협공으로 인정되는 시간이 0.15초 길어진다.",
-                s => s.PincerWindow < 0.8f,
+                s => s.PincerWindow < 1.0f,
                 (s, p) => { s.PincerWindow += 0.15f; }),
 
             new Upgrade("빠른 교대", "자리 바꾸기 대기시간이 1초 줄어든다.",

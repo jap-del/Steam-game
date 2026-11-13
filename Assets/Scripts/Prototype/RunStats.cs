@@ -7,11 +7,11 @@ namespace SteamGame.Prototype
         public float PlayerDamage = 10f;
 
         public int ShadowCount = 1;
-        public float ShadowDelaySeconds = 3f;
+        public float ShadowDelaySeconds = 2f;
         public float ShadowDamageMultiplier = 0.5f;
         public float ShadowSlashScale = 1f;
 
-        public float PincerWindow = 0.35f;
+        public float PincerWindow = 0.6f;
         public float PincerMultiplier = 2f;
 
         public float SwapCooldown = 4f;
