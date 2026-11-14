@@ -240,17 +240,9 @@ namespace SteamGame.Prototype
             for (int i = 0; i < _layout.Enemies.Count; i++)
             {
                 EnemySpawn spawn = _layout.Enemies[i];
-                Enemy enemy = CreateEnemy(spawn.Kind, spawn.Feet);
-
-                // 적은 플레이어나 다른 적과 몸으로 부딪히지 않는다.
-                Physics2D.IgnoreCollision(enemy.Collider, _player.Collider);
-                for (int j = 0; j < _enemies.Count; j++)
-                {
-                    Physics2D.IgnoreCollision(enemy.Collider, _enemies[j].Collider);
-                }
-                _enemies.Add(enemy);
-                if (enemy.IsBoss) _boss = enemy;
+                AddEnemy(VaryKind(spawn.Kind), spawn.Feet);
             }
+            AddFlyers();
 
             BuildShop(parent);
             BuildPlates(parent);
@@ -262,6 +254,43 @@ namespace SteamGame.Prototype
             ShowPopup(_player.Position + Vector2.up * 2.2f, _stage + "-" + _room + " " + RoomName(_layout.Type), Color.white);
         }
 
+        /// <summary>적 하나를 만들어 방에 넣는다. 적은 플레이어나 다른 적과 몸으로 부딪히지 않는다.</summary>
+        private void AddEnemy(EnemyKind kind, Vector2 feet)
+        {
+            Enemy enemy = CreateEnemy(kind, feet);
+            Physics2D.IgnoreCollision(enemy.Collider, _player.Collider);
+            for (int j = 0; j < _enemies.Count; j++)
+            {
+                Physics2D.IgnoreCollision(enemy.Collider, _enemies[j].Collider);
+            }
+            _enemies.Add(enemy);
+            if (enemy.IsBoss) _boss = enemy;
+        }
+
+        /// <summary>전투방에서 기본 적의 일부를 방패병이나 폭탄병으로 바꾼다. 맨 첫 방은 기본 적만 나온다.</summary>
+        private EnemyKind VaryKind(EnemyKind kind)
+        {
+            if (_layout.Type != RoomType.Mob || (_stage == 1 && _room == 1)) return kind;
+
+            if (kind == EnemyKind.Brute && Random.value < 0.35f) return EnemyKind.Shield;
+            if (kind == EnemyKind.Shooter && Random.value < 0.4f) return EnemyKind.Bomber;
+            return kind;
+        }
+
+        /// <summary>전투방에 날아다니는 적을 몇 마리 더한다. 스테이지가 오를수록 늘어난다.</summary>
+        private void AddFlyers()
+        {
+            if (_layout.Type != RoomType.Mob || (_stage == 1 && _room == 1)) return;
+
+            int count = Mathf.Min(_stage, 3);
+            Vector2 size = Enemy.SizeOf(EnemyKind.Flyer);
+            for (int i = 0; i < count; i++)
+            {
+                float x = Random.Range(14f, Mathf.Max(15f, _layout.Width - 12f));
+                AddEnemy(EnemyKind.Flyer, new Vector2(x, StageBuilder.GroundTop + 4.5f - size.y * 0.5f));
+            }
+        }
+
         private float HealthFor(EnemyKind kind)
         {
             int extra = _stage - 1;
@@ -270,6 +299,8 @@ namespace SteamGame.Prototype
                 case EnemyKind.Dummy: return 100f;
                 case EnemyKind.MidBoss: return 160f + 70f * extra;
                 case EnemyKind.Boss: return 260f + 120f * extra;
+                case EnemyKind.Shield: return 40f + 12f * extra;
+                case EnemyKind.Flyer: return 20f + 6f * extra;
                 default: return 30f + 10f * extra;
             }
         }
@@ -537,6 +568,15 @@ namespace SteamGame.Prototype
             if (_root == null) return;
             SpriteRenderer renderer = PrototypeArt.CreateBox("Projectile", _root.transform, origin, new Vector2(size, size), new Color(1f, 0.8f, 0.2f, 1f), 15);
             renderer.gameObject.AddComponent<Projectile>().Launch(_player, velocity);
+        }
+
+        public void SpawnBomb(Vector2 origin, Vector2 target, float flightTime, float radius)
+        {
+            if (_root == null) return;
+            // 떨어질 자리를 붉게 표시한다.
+            SpriteRenderer marker = PrototypeArt.CreateBox("BombMarker", _root.transform, target, new Vector2(radius * 2f, radius * 2f), new Color(1f, 0.25f, 0.2f, 0.2f), 5);
+            SpriteRenderer renderer = PrototypeArt.CreateBox("Bomb", _root.transform, origin, new Vector2(0.45f, 0.45f), new Color(0.2f, 0.2f, 0.22f, 1f), 15);
+            renderer.gameObject.AddComponent<Bomb>().Launch(this, _player, marker.gameObject, origin, target, flightTime, radius);
         }
 
         // ---- 화면 표시 ----
