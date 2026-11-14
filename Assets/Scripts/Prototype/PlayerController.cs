@@ -84,7 +84,9 @@ namespace SteamGame.Prototype
             _lastSafePosition = transform.position;
 
             _sprite = PrototypeArt.CreateBox("Body", transform, Vector2.zero, BodySize, BodyColor, 10);
+            PixelSprites.Dress(_sprite, "Player", BodySize);
             _slash = PrototypeArt.CreateBox("Slash", transform, Vector2.zero, Combat.SlashSize, new Color(1f, 1f, 1f, 0.7f), 12);
+            PixelSprites.Dress(_slash, "Slash", Combat.SlashSize);
             _slash.enabled = false;
 
             _collider = gameObject.AddComponent<BoxCollider2D>();
@@ -196,6 +198,7 @@ namespace SteamGame.Prototype
             }
 
             _sprite.color = _dashTimer > 0f ? DashColor : BodyColor;
+            PixelSprites.Face(_sprite, _facing);
 
             if (_invulnerableTimer > 0f)
             {
@@ -327,6 +330,7 @@ namespace SteamGame.Prototype
             }
 
             _slash.transform.localPosition = new Vector3(_facing * Combat.SlashReach, 0f, 0f);
+            PixelSprites.Face(_slash, _facing);
             _slash.enabled = true;
             _slashTimer = 0.12f;
         }

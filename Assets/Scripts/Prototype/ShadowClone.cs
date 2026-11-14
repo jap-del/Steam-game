@@ -28,7 +28,10 @@ namespace SteamGame.Prototype
             _slashScale = slashScale;
             _bodyColor = new Color(0.45f, 0.25f, 0.85f, alpha);
             _body = PrototypeArt.CreateBox("Body", transform, Vector2.zero, bodySize, _bodyColor, 9);
+            // 분신은 플레이어와 같은 그림을 한 가지 색으로만 칠한 실루엣이다.
+            PixelSprites.Dress(_body, "Player", bodySize, false);
             _slash = PrototypeArt.CreateBox("Slash", transform, Vector2.zero, Combat.SlashSize * slashScale, new Color(0.7f, 0.5f, 1f, 0.6f), 11);
+            PixelSprites.Dress(_slash, "Slash", Combat.SlashSize * slashScale);
             _slash.enabled = false;
             _body.enabled = false;
         }
@@ -50,6 +53,7 @@ namespace SteamGame.Prototype
                 _previous = _target;
             }
             _target = frame.Position;
+            PixelSprites.Face(_body, frame.Facing);
 
             if (frame.Attacked) Attack(frame.Position, frame.Facing, damage);
         }
@@ -83,6 +87,8 @@ namespace SteamGame.Prototype
             facing = Combat.FacingToNearestEnemy(origin, facing, 2.6f * _slashScale);
             Combat.Slash(origin, facing, damage, HitSource.Shadow, _slashScale);
             _slash.transform.localPosition = new Vector3(facing * Combat.SlashReach * _slashScale, 0f, 0f);
+            PixelSprites.Face(_slash, facing);
+            PixelSprites.Face(_body, facing);
             _slash.enabled = true;
             _slashTimer = 0.12f;
         }

@@ -183,6 +183,7 @@ namespace SteamGame.Prototype
             _cooldown = Random.Range(0.4f, 1.4f);
 
             _sprite = PrototypeArt.CreateBox("Body", transform, Vector2.zero, _size, _baseColor, 8);
+            PixelSprites.Dress(_sprite, kind.ToString(), _size);
 
             float barY = _size.y * 0.5f + 0.3f;
             PrototypeArt.CreateBox("HealthBack", transform, new Vector2(0f, barY), new Vector2(1.1f, 0.14f), new Color(0f, 0f, 0f, 0.7f), 13);
@@ -217,6 +218,8 @@ namespace SteamGame.Prototype
 
         private void Update()
         {
+            PixelSprites.Face(_sprite, _facing);
+
             Color color = _baseColor;
             if (_flashTimer > 0f)
             {

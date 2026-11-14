@@ -99,6 +99,10 @@
 
 코드는 `Assets/Scripts/Prototype`에 있다. 시작 수치는 `RunStats.cs`, 강화 목록은 `Upgrades.cs`, 방의 모양과 구간은 `StageBuilder.cs`, 방 순서와 가격은 `PrototypeGame.cs`, 적의 속도와 타이밍은 `Enemy.cs` 위쪽에서 바꿀 수 있다.
 
+### 그림
+
+그림 파일은 아직 없다. `PixelSpriteData.cs`에 글자로 적어 둔 격자(글자 하나가 픽셀 하나)를 `PixelSprites.cs`가 Play 때 스프라이트로 만든다. 캐릭터 그림은 밝기만 가지고 있고 색은 코드에서 입히므로, 적이 노랗게 깜빡이거나 어두워지는 신호는 사각형일 때와 같다. 지형은 돌 타일을 이어 붙이고 밟을 수 있는 윗면에 이끼 띠를 얹는다.
+
 ## 개발 환경
 
 Unity 프로젝트는 이 저장소의 최상위 폴더에 둡니다. `Assets/`, `Packages/`, `ProjectSettings/` 폴더가 저장소 루트에 바로 오도록 만들어 주세요.

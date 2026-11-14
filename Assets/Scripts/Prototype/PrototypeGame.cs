@@ -327,6 +327,7 @@ namespace SteamGame.Prototype
 
             Vector2 doorSize = new Vector2(1.6f, 2.6f);
             _door = PrototypeArt.CreateBox("ExitDoor", parent, FeetToCenter(_layout.ExitPosition, doorSize), doorSize, DoorLockedColor, 1);
+            PixelSprites.Dress(_door, "Door", doorSize);
 
             SetUpCamera(playerGo.transform);
             BuildHub(parent);
@@ -535,6 +536,7 @@ namespace SteamGame.Prototype
                 Vector2 size = new Vector2(1f, 1f);
                 Color color = item.Upgrade == null ? new Color(0.9f, 0.35f, 0.4f, 1f) : new Color(0.5f, 0.75f, 1f, 1f);
                 item.Pedestal = PrototypeArt.CreateBox("ShopItem", parent, FeetToCenter(item.Position, size), size, color, 2);
+                PixelSprites.Dress(item.Pedestal, item.Upgrade == null ? "Potion" : "Crystal", size);
                 _shopItems.Add(item);
             }
         }
@@ -830,6 +832,7 @@ namespace SteamGame.Prototype
         {
             if (_root == null) return;
             SpriteRenderer renderer = PrototypeArt.CreateBox("Projectile", _root.transform, origin, new Vector2(size, size), new Color(1f, 0.8f, 0.2f, 1f), 15);
+            PixelSprites.Dress(renderer, "Orb", new Vector2(size, size));
             renderer.gameObject.AddComponent<Projectile>().Launch(_player, velocity);
         }
 
