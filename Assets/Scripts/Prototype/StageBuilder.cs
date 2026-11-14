@@ -24,7 +24,7 @@ namespace SteamGame.Prototype
         Shop = 2,
         Puzzle = 3,
         Boss = 4,
-        /// <summary>판을 시작하기 전에 머무는 거점. 난이도를 고르고 문으로 나가 판을 시작한다.</summary>
+        /// <summary>스테이지 앞에 머무는 거점. 첫 거점에서는 난이도를 고르고, 그 뒤의 거점에서는 강화를 산다.</summary>
         Hub = 5,
     }
 
@@ -42,9 +42,16 @@ namespace SteamGame.Prototype
         public readonly List<Vector2> ShopSlots = new List<Vector2>();
         /// <summary>퍼즐방의 발판 자리 (윗면 가운데).</summary>
         public readonly List<Vector2> Plates = new List<Vector2>();
-        /// <summary>거점에만 있는 문 두 개의 자리 (발 위치).</summary>
-        public Vector2 DifficultyDoor;
+        /// <summary>false이면 닿아서 나가는 출구 문이 없다. 첫 거점은 난이도 문으로만 나간다.</summary>
+        public bool HasExit = true;
+        /// <summary>첫 거점의 난이도 문 자리 (발 위치). Difficulty.Levels와 같은 순서다.</summary>
+        public readonly List<Vector2> DifficultyDoors = new List<Vector2>();
+        /// <summary>첫 거점의 이벤트 문. 나중에 이벤트나 DLC에 쓴다.</summary>
+        public bool HasEventDoor;
         public Vector2 EventDoor;
+        /// <summary>2스테이지 거점부터 있는 강화의 제단.</summary>
+        public bool HasAltar;
+        public Vector2 Altar;
     }
 
     /// <summary>
@@ -89,7 +96,7 @@ namespace SteamGame.Prototype
                     BuildPuzzleRoom(parent, layout);
                     break;
                 case RoomType.Hub:
-                    BuildHubRoom(layout);
+                    BuildHubRoom(layout, stage);
                     break;
                 default:
                     BuildMobRoom(parent, layout, stage, withDummy);
@@ -171,15 +178,31 @@ namespace SteamGame.Prototype
             layout.Width = width;
         }
 
-        /// <summary>거점: 적이 없는 방. 난이도 문, 이벤트 문, 판을 시작하는 문이 차례로 있다.</summary>
-        private static void BuildHubRoom(StageLayout layout)
+        /// <summary>
+        /// 거점: 적이 없는 방. 1스테이지 거점에는 난이도마다 문이 하나씩 있고 이벤트 문이 따로 있다.
+        /// 2스테이지 거점부터는 강화의 제단과 다음 스테이지로 가는 문이 있다.
+        /// </summary>
+        private static void BuildHubRoom(StageLayout layout, int stage)
         {
             const float width = 34f;
             Ground(0f, width);
             layout.PlayerSpawn = new Vector2(3f, GroundTop);
-            layout.DifficultyDoor = new Vector2(11f, GroundTop);
-            layout.EventDoor = new Vector2(19f, GroundTop);
             layout.ExitPosition = new Vector2(30f, GroundTop);
+            if (stage <= 1)
+            {
+                for (int i = 0; i < Difficulty.Levels.Length; i++)
+                {
+                    layout.DifficultyDoors.Add(new Vector2(9f + i * 5f, GroundTop));
+                }
+                layout.HasEventDoor = true;
+                layout.EventDoor = new Vector2(28f, GroundTop);
+                layout.HasExit = false;
+            }
+            else
+            {
+                layout.HasAltar = true;
+                layout.Altar = new Vector2(14f, GroundTop);
+            }
             layout.Width = width;
         }
 
