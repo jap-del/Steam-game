@@ -10,7 +10,8 @@ namespace SteamGame.Prototype
     /// 방, 플레이어, 분신, 적을 코드로 만들어 준다.
     /// 한 스테이지는 방 여섯 개(전투, 전투, 중간 보스, 상점, 퍼즐 또는 전투, 보스)이고,
     /// 보스방까지 깨면 강화를 하나 고른 뒤 다음 스테이지로 간다.
-    /// 판은 거점에서 시작한다. 적을 잡아 모은 그림자 조각은 죽어도 남고, 거점에서 영구 강화에 쓴다.
+    /// 판은 거점에서 시작한다. 거점에서 난이도를 고르고 문으로 나가면 1-1이 시작된다.
+    /// 적을 잡아 모은 그림자 조각은 죽어도 남는다.
     /// </summary>
     public sealed class PrototypeGame : MonoBehaviour
     {
@@ -36,6 +37,8 @@ namespace SteamGame.Prototype
         private static readonly Color PlateIdleColor = new Color(0.2f, 0.4f, 0.5f, 1f);
         private static readonly Color PlatePressedColor = new Color(0.4f, 0.95f, 1f, 1f);
         private static readonly Color ShardColor = new Color(0.72f, 0.6f, 1f, 1f);
+        private static readonly Color EventDoorLockedColor = new Color(0.3f, 0.3f, 0.36f, 1f);
+        private static readonly Vector2 HubDoorSize = new Vector2(1.6f, 2.6f);
 
         private static PrototypeGame _instance;
 
@@ -60,12 +63,12 @@ namespace SteamGame.Prototype
             public SpriteRenderer Pedestal;
         }
 
-        /// <summary>거점에 놓인 영구 강화 받침대 하나.</summary>
-        private sealed class HubItem
+        /// <summary>거점에서 상호작용할 수 있는 문.</summary>
+        private enum HubDoor
         {
-            public Vector2 Position;
-            public MetaUpgrade Upgrade;
-            public SpriteRenderer Pedestal;
+            None,
+            Difficulty,
+            Event,
         }
 
         /// <summary>퍼즐방의 발판 하나.</summary>
@@ -80,14 +83,16 @@ namespace SteamGame.Prototype
         private readonly List<Popup> _popups = new List<Popup>();
         private readonly List<ShopItem> _shopItems = new List<ShopItem>();
         private readonly List<Plate> _plates = new List<Plate>();
-        private readonly List<HubItem> _hubItems = new List<HubItem>();
         private GameObject _root;
         private StageLayout _layout;
         private PlayerController _player;
         private SpriteRenderer _door;
         private Enemy _boss;
         private ShopItem _nearItem;
-        private HubItem _nearHubItem;
+        private HubDoor _nearHubDoor;
+        private SpriteRenderer _difficultyDoor;
+        private DifficultyLevel _difficulty;
+        private bool _pickingDifficulty;
         private string _lastRunSummary;
         private int _shards;
         private int _runShards;
@@ -111,7 +116,7 @@ namespace SteamGame.Prototype
         public RunStats Stats { get; private set; }
 
         /// <summary>강화를 고르는 동안에는 게임이 멈춘다.</summary>
-        public bool IsPaused => _choices != null;
+        public bool IsPaused => _choices != null || _pickingDifficulty;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetStatics()
@@ -163,6 +168,14 @@ namespace SteamGame.Prototype
                 return;
             }
 
+            if (_pickingDifficulty)
+            {
+                int picked = ReadChoiceInput();
+                if (picked >= 0 && picked < Difficulty.Levels.Length) ChooseDifficulty(picked);
+                else if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame) CloseDifficultyChoice();
+                return;
+            }
+
             for (int i = _popups.Count - 1; i >= 0; i--)
             {
                 Popup popup = _popups[i];
@@ -192,7 +205,7 @@ namespace SteamGame.Prototype
 
         /// <summary>
         /// 새 판을 거점에서 시작한다. 판 안의 강화, 골드, 진행은 처음으로 돌아가고
-        /// 그림자 조각과 영구 강화만 남는다.
+        /// 그림자 조각과 고른 난이도만 남는다.
         /// </summary>
         private void StartRun()
         {
@@ -207,10 +220,11 @@ namespace SteamGame.Prototype
             _runShards = 0;
 
             Stats = new RunStats();
-            MetaProgress.ApplyAll(Stats);
+            _difficulty = Difficulty.Selected;
+            Stats.MaxHealth += _difficulty.MaxHealthBonus;
             _stage = 1;
             _room = 0;
-            _gold = Stats.StartGold;
+            _gold = 0;
             _pincers = 0;
             _kills = 0;
             BuildRoom(Stats.MaxHealth);
@@ -257,11 +271,12 @@ namespace SteamGame.Prototype
             _popups.Clear();
             _shopItems.Clear();
             _plates.Clear();
-            _hubItems.Clear();
             _choices = null;
             _boss = null;
             _nearItem = null;
-            _nearHubItem = null;
+            _nearHubDoor = HubDoor.None;
+            _difficultyDoor = null;
+            _pickingDifficulty = false;
             _puzzleSolved = false;
             _roomCleared = false;
             Time.timeScale = 1f;
@@ -328,8 +343,10 @@ namespace SteamGame.Prototype
             go.transform.SetParent(_root.transform, false);
             go.transform.position = FeetToCenter(feet, Enemy.SizeOf(kind));
             var enemy = go.AddComponent<Enemy>();
-            enemy.MaxHealth = HealthFor(kind);
-            enemy.MoveSpeed = Random.Range(2.2f, 3.2f);
+            // 연습용 허수아비는 난이도와 상관없다.
+            bool scaled = kind != EnemyKind.Dummy;
+            enemy.MaxHealth = HealthFor(kind) * (scaled ? _difficulty.EnemyHealthScale : 1f);
+            enemy.MoveSpeed = Random.Range(2.2f, 3.2f) * (scaled ? _difficulty.EnemySpeedScale : 1f);
             enemy.Build(this, _player, kind);
             return enemy;
         }
@@ -382,8 +399,10 @@ namespace SteamGame.Prototype
             MetaProgress.Save();
             if (_room < RoomsPerStage)
             {
+                // 거점을 나설 때는 고른 난이도의 최대 체력으로 시작한다.
+                bool fromHub = _layout.Type == RoomType.Hub;
                 _room++;
-                BuildRoom(_player.Health);
+                BuildRoom(fromHub ? Stats.MaxHealth : _player.Health);
                 return;
             }
 
@@ -493,12 +512,17 @@ namespace SteamGame.Prototype
             }
         }
 
-        /// <summary>플레이어가 상호작용 키를 눌렀다. 상점 물건이나 거점의 영구 강화를 산다.</summary>
+        /// <summary>플레이어가 상호작용 키를 눌렀다. 상점 물건을 사거나 거점의 문을 쓴다.</summary>
         public void OnInteract()
         {
-            if (_nearHubItem != null && _player != null)
+            if (_nearHubDoor == HubDoor.Difficulty)
             {
-                BuyHubItem(_nearHubItem);
+                OpenDifficultyChoice();
+                return;
+            }
+            if (_nearHubDoor == HubDoor.Event && _player != null)
+            {
+                ShowPopup(_player.Position + Vector2.up * 1.6f, "아직 열리지 않았다", Color.white);
                 return;
             }
             if (_nearItem == null || _nearItem.Sold || _player == null) return;
@@ -519,42 +543,29 @@ namespace SteamGame.Prototype
             _nearItem = null;
         }
 
-        // ---- 거점과 영구 강화 ----
+        // ---- 거점: 난이도 문과 이벤트 문 ----
 
         private void BuildHub(Transform parent)
         {
             if (_layout.Type != RoomType.Hub) return;
 
-            for (int i = 0; i < _layout.ShopSlots.Count && i < MetaProgress.Upgrades.Length; i++)
-            {
-                var item = new HubItem();
-                item.Position = _layout.ShopSlots[i];
-                item.Upgrade = MetaProgress.Upgrades[i];
-                Vector2 size = new Vector2(1f, 1f);
-                item.Pedestal = PrototypeArt.CreateBox("HubItem", parent, FeetToCenter(item.Position, size), size, HubItemColor(item.Upgrade), 2);
-                _hubItems.Add(item);
-            }
+            _difficultyDoor = PrototypeArt.CreateBox("DifficultyDoor", parent, FeetToCenter(_layout.DifficultyDoor, HubDoorSize), HubDoorSize, _difficulty.DoorColor, 1);
+            // 이벤트나 DLC가 생기면 여는 문. 지금은 잠겨 있다.
+            PrototypeArt.CreateBox("EventDoor", parent, FeetToCenter(_layout.EventDoor, HubDoorSize), HubDoorSize, EventDoorLockedColor, 1);
         }
 
-        private static Color HubItemColor(MetaUpgrade upgrade)
+        private bool IsNearHubDoor(Vector2 doorFeet)
         {
-            bool maxed = MetaProgress.LevelOf(upgrade) >= upgrade.MaxLevel;
-            return maxed ? new Color(0.25f, 0.25f, 0.3f, 1f) : ShardColor;
+            return Mathf.Abs(_player.Position.x - doorFeet.x) < 1.2f && Mathf.Abs(_player.Feet.y - doorFeet.y) < 1.5f;
         }
 
         private void UpdateHub()
         {
-            _nearHubItem = null;
-            if (_hubItems.Count == 0) return;
+            _nearHubDoor = HubDoor.None;
+            if (_layout.Type != RoomType.Hub) return;
 
-            for (int i = 0; i < _hubItems.Count; i++)
-            {
-                HubItem item = _hubItems[i];
-                if (Mathf.Abs(_player.Position.x - item.Position.x) < 1.2f && Mathf.Abs(_player.Feet.y - item.Position.y) < 1.5f)
-                {
-                    _nearHubItem = item;
-                }
-            }
+            if (IsNearHubDoor(_layout.DifficultyDoor)) _nearHubDoor = HubDoor.Difficulty;
+            else if (IsNearHubDoor(_layout.EventDoor)) _nearHubDoor = HubDoor.Event;
 
             // 테스트용: 거점에서 Delete(맥에서는 delete 키)를 두 번 누르면 저장을 지운다.
             Keyboard keyboard = Keyboard.current;
@@ -575,60 +586,55 @@ namespace SteamGame.Prototype
             }
         }
 
-        private void BuyHubItem(HubItem item)
+        /// <summary>난이도 문 앞에서 상호작용하면 난이도를 고르는 화면이 뜬다. 고르는 동안 게임이 멈춘다.</summary>
+        private void OpenDifficultyChoice()
         {
-            Vector2 above = _player.Position + Vector2.up * 1.6f;
-            int level = MetaProgress.LevelOf(item.Upgrade);
-            if (level >= item.Upgrade.MaxLevel)
-            {
-                ShowPopup(above, "이미 최대 단계다", Color.white);
-                return;
-            }
+            _pickingDifficulty = true;
+            Time.timeScale = 0f;
+        }
 
-            int price = item.Upgrade.Costs[level];
-            if (_shards < price)
-            {
-                ShowPopup(above, MetaProgress.CurrencyName + "이 부족하다", new Color(1f, 0.4f, 0.4f, 1f));
-                return;
-            }
+        private void CloseDifficultyChoice()
+        {
+            _pickingDifficulty = false;
+            Time.timeScale = 1f;
+        }
 
-            _shards -= price;
-            MetaProgress.Shards = _shards;
-            MetaProgress.SetLevel(item.Upgrade, level + 1);
+        private void ChooseDifficulty(int index)
+        {
+            Difficulty.SelectedIndex = index;
             MetaProgress.Save();
+            _difficulty = Difficulty.Selected;
+            CloseDifficultyChoice();
 
-            // 산 강화는 바로 이번 판부터 적용된다.
-            item.Upgrade.ApplyOnce(Stats);
-            _gold = Stats.StartGold;
-            _player.Heal(Stats.MaxHealth);
-            item.Pedestal.color = HubItemColor(item.Upgrade);
-            ShowPopup(above, item.Upgrade.Title + " " + (level + 1) + "단계", new Color(0.6f, 1f, 0.7f, 1f));
+            // 거점에서는 아직 강화가 없으므로 최대 체력을 기본값에서 다시 계산한다.
+            Stats.MaxHealth = new RunStats().MaxHealth + _difficulty.MaxHealthBonus;
+            if (_player != null)
+            {
+                _player.Heal(Stats.MaxHealth);
+                ShowPopup(_player.Position + Vector2.up * 1.6f, "난이도: " + _difficulty.Title, _difficulty.DoorColor);
+            }
+            if (_difficultyDoor != null) _difficultyDoor.color = _difficulty.DoorColor;
         }
 
         private void DrawHubLabels()
         {
-            for (int i = 0; i < _hubItems.Count; i++)
-            {
-                HubItem item = _hubItems[i];
-                Vector2 above = item.Position + Vector2.up * 2f;
-                int level = MetaProgress.LevelOf(item.Upgrade);
-                bool maxed = level >= item.Upgrade.MaxLevel;
+            if (_layout == null || _layout.Type != RoomType.Hub) return;
 
-                DrawWorldLabel(above + Vector2.up * 0.6f, item.Upgrade.Title + " " + level + "/" + item.Upgrade.MaxLevel, Color.white, 300f);
-                if (maxed)
-                {
-                    DrawWorldLabel(above, "최대 단계", new Color(1f, 1f, 1f, 0.5f), 300f);
-                }
-                else
-                {
-                    int price = item.Upgrade.Costs[level];
-                    DrawWorldLabel(above, MetaProgress.CurrencyName + " " + price, _shards >= price ? ShardColor : new Color(1f, 0.4f, 0.4f, 1f), 300f);
-                }
-                if (item == _nearHubItem)
-                {
-                    DrawWorldLabel(above + Vector2.up * 1.3f, item.Upgrade.Description + (maxed ? "" : "  (E: 구매)"), new Color(0.8f, 1f, 0.85f, 1f), 900f);
-                }
+            Vector2 above = _layout.DifficultyDoor + Vector2.up * 3.1f;
+            DrawWorldLabel(above + Vector2.up * 0.6f, "난이도의 문", Color.white, 300f);
+            DrawWorldLabel(above, "지금: " + _difficulty.Title, _difficulty.DoorColor, 300f);
+            if (_nearHubDoor == HubDoor.Difficulty)
+            {
+                DrawWorldLabel(above + Vector2.up * 1.3f, "E: 난이도 고르기", new Color(0.8f, 1f, 0.85f, 1f), 600f);
             }
+
+            above = _layout.EventDoor + Vector2.up * 3.1f;
+            DrawWorldLabel(above + Vector2.up * 0.6f, "이벤트의 문", Color.white, 300f);
+            DrawWorldLabel(above, "잠겨 있다", new Color(1f, 1f, 1f, 0.5f), 300f);
+
+            above = _layout.ExitPosition + Vector2.up * 3.1f;
+            DrawWorldLabel(above + Vector2.up * 0.6f, "출발의 문", Color.white, 300f);
+            DrawWorldLabel(above, "닿으면 1-1 시작", DoorOpenColor, 300f);
         }
 
         // ---- 퍼즐 ----
@@ -682,7 +688,8 @@ namespace SteamGame.Prototype
             ShowPopup((Vector2)enemy.transform.position + Vector2.up * 1.6f, "+" + enemy.GoldValue + " 골드", GoldColor);
 
             // 그림자 조각은 죽어도 남는다. 바로 저장 값에 더해 둔다.
-            int shards = enemy.Kind == EnemyKind.Boss ? ShardsPerBoss : (enemy.Kind == EnemyKind.MidBoss ? ShardsPerMidBoss : ShardsPerEnemy);
+            int baseShards = enemy.Kind == EnemyKind.Boss ? ShardsPerBoss : (enemy.Kind == EnemyKind.MidBoss ? ShardsPerMidBoss : ShardsPerEnemy);
+            int shards = Mathf.CeilToInt(baseShards * _difficulty.ShardScale);
             _shards += shards;
             _runShards += shards;
             MetaProgress.Shards = _shards;
@@ -732,7 +739,7 @@ namespace SteamGame.Prototype
             switch (_layout.Type)
             {
                 case RoomType.Hub:
-                    return "받침대 앞에서 E로 영구 강화 구매. 오른쪽 문으로 나가면 1-1 시작. (delete 두 번: 저장 지우기)";
+                    return "난이도의 문 앞에서 E로 난이도를 고른다. 오른쪽 끝 출발의 문으로 나가면 1-1 시작. (delete 두 번: 저장 지우기)";
                 case RoomType.Shop:
                     return "물건 앞에서 E로 구매. 오른쪽 문으로 나간다";
                 case RoomType.Puzzle:
@@ -788,7 +795,7 @@ namespace SteamGame.Prototype
                     : "대시 가능";
 
                 GUI.color = Color.white;
-                GUI.Label(new Rect(16f, 12f, 1200f, 28f), RoomLabel() + "    체력 " + _player.Health + " / " + Stats.MaxHealth + "    골드 " + _gold + "    " + MetaProgress.CurrencyName + " " + _shards, _hudStyle);
+                GUI.Label(new Rect(16f, 12f, 1400f, 28f), RoomLabel() + "    난이도 " + _difficulty.Title + "    체력 " + Mathf.Min(_player.Health, Stats.MaxHealth) + " / " + Stats.MaxHealth + "    골드 " + _gold + "    " + MetaProgress.CurrencyName + " " + _shards, _hudStyle);
                 GUI.Label(new Rect(16f, 40f, 1000f, 28f), shadowState + "    " + dashState + "    처치 " + _kills + "    협공 " + _pincers, _hudStyle);
                 GUI.Label(new Rect(16f, 68f, 1400f, 28f), GoalText(), _hudStyle);
                 if (_layout.Type == RoomType.Hub && _lastRunSummary != null)
@@ -806,6 +813,12 @@ namespace SteamGame.Prototype
             if (_choices != null)
             {
                 DrawChoices();
+                return;
+            }
+
+            if (_pickingDifficulty)
+            {
+                DrawDifficultyChoices();
                 return;
             }
 
@@ -871,6 +884,36 @@ namespace SteamGame.Prototype
 
         private void DrawChoices()
         {
+            var titles = new string[_choices.Count];
+            var bodies = new string[_choices.Count];
+            for (int i = 0; i < _choices.Count; i++)
+            {
+                titles[i] = _choices[i].Title;
+                bodies[i] = _choices[i].Description;
+            }
+
+            int clicked = DrawCards(_stage + "스테이지 클리어! 강화를 하나 고르세요 (숫자 키 1, 2, 3 또는 클릭)", titles, bodies);
+            if (clicked >= 0) Choose(clicked);
+        }
+
+        private void DrawDifficultyChoices()
+        {
+            DifficultyLevel[] levels = Difficulty.Levels;
+            var titles = new string[levels.Length];
+            var bodies = new string[levels.Length];
+            for (int i = 0; i < levels.Length; i++)
+            {
+                titles[i] = levels[i].Title + (levels[i] == _difficulty ? " (지금)" : "");
+                bodies[i] = levels[i].Description;
+            }
+
+            int clicked = DrawCards("난이도를 고르세요 (숫자 키 1, 2, 3 또는 클릭, Esc로 닫기)", titles, bodies);
+            if (clicked >= 0) ChooseDifficulty(clicked);
+        }
+
+        /// <summary>화면을 어둡게 하고 카드를 나란히 그린다. 클릭한 카드의 번호를 돌려주고, 없으면 -1이다.</summary>
+        private int DrawCards(string header, string[] titles, string[] bodies)
+        {
             GUI.color = new Color(0f, 0f, 0f, 0.65f);
             GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
             GUI.color = Color.white;
@@ -878,22 +921,22 @@ namespace SteamGame.Prototype
             const float cardWidth = 300f;
             const float cardHeight = 190f;
             const float gap = 24f;
-            float totalWidth = _choices.Count * cardWidth + (_choices.Count - 1) * gap;
+            float totalWidth = titles.Length * cardWidth + (titles.Length - 1) * gap;
             float left = (Screen.width - totalWidth) * 0.5f;
             float top = (Screen.height - cardHeight) * 0.5f;
 
-            GUI.Label(new Rect(0f, top - 60f, Screen.width, 36f), _stage + "스테이지 클리어! 강화를 하나 고르세요 (숫자 키 1, 2, 3 또는 클릭)", _cardTitleStyle);
+            GUI.Label(new Rect(0f, top - 60f, Screen.width, 36f), header, _cardTitleStyle);
 
             int clicked = -1;
-            for (int i = 0; i < _choices.Count; i++)
+            for (int i = 0; i < titles.Length; i++)
             {
                 var card = new Rect(left + i * (cardWidth + gap), top, cardWidth, cardHeight);
                 if (GUI.Button(card, GUIContent.none)) clicked = i;
-                GUI.Label(new Rect(card.x + 12f, card.y + 14f, cardWidth - 24f, 32f), (i + 1) + ". " + _choices[i].Title, _cardTitleStyle);
-                GUI.Label(new Rect(card.x + 16f, card.y + 64f, cardWidth - 32f, cardHeight - 76f), _choices[i].Description, _cardBodyStyle);
+                GUI.Label(new Rect(card.x + 12f, card.y + 14f, cardWidth - 24f, 32f), (i + 1) + ". " + titles[i], _cardTitleStyle);
+                GUI.Label(new Rect(card.x + 16f, card.y + 64f, cardWidth - 32f, cardHeight - 76f), bodies[i], _cardBodyStyle);
             }
 
-            if (clicked >= 0) Choose(clicked);
+            return clicked;
         }
     }
 }
