@@ -612,13 +612,15 @@ namespace SteamGame.Prototype
 
             for (int i = 0; i < _layout.DifficultyDoors.Count && i < Difficulty.Levels.Length; i++)
             {
-                PrototypeArt.CreateBox("DifficultyDoor", parent, FeetToCenter(_layout.DifficultyDoors[i], HubDoorSize), HubDoorSize, Difficulty.Levels[i].DoorColor, 1);
+                SpriteRenderer door = PrototypeArt.CreateBox("DifficultyDoor", parent, FeetToCenter(_layout.DifficultyDoors[i], HubDoorSize), HubDoorSize, Difficulty.Levels[i].DoorColor, 1);
+                PixelSprites.Dress(door, "Door", HubDoorSize);
             }
 
             if (_layout.HasEventDoor)
             {
                 // 이벤트나 DLC가 생기면 여는 문. 지금은 잠겨 있다.
-                PrototypeArt.CreateBox("EventDoor", parent, FeetToCenter(_layout.EventDoor, HubDoorSize), HubDoorSize, EventDoorLockedColor, 1);
+                SpriteRenderer eventDoor = PrototypeArt.CreateBox("EventDoor", parent, FeetToCenter(_layout.EventDoor, HubDoorSize), HubDoorSize, EventDoorLockedColor, 1);
+                PixelSprites.Dress(eventDoor, "Door", HubDoorSize);
             }
 
             if (_layout.HasAltar)
@@ -626,6 +628,7 @@ namespace SteamGame.Prototype
                 // 고를 강화 셋은 거점에 들어올 때 정해 둔다. 닫았다 다시 열어도 바뀌지 않는다.
                 _altarChoices = UpgradePool.Pick(Stats, 3);
                 _altar = PrototypeArt.CreateBox("Altar", parent, FeetToCenter(_layout.Altar, AltarSize), AltarSize, ShardColor, 2);
+                PixelSprites.Dress(_altar, "Altar", AltarSize);
             }
         }
 
@@ -841,7 +844,10 @@ namespace SteamGame.Prototype
             if (_root == null) return;
             // 떨어질 자리를 붉게 표시한다.
             SpriteRenderer marker = PrototypeArt.CreateBox("BombMarker", _root.transform, target, new Vector2(radius * 2f, radius * 2f), new Color(1f, 0.25f, 0.2f, 0.2f), 5);
-            SpriteRenderer renderer = PrototypeArt.CreateBox("Bomb", _root.transform, origin, new Vector2(0.45f, 0.45f), new Color(0.2f, 0.2f, 0.22f, 1f), 15);
+            // 그림에 명암이 있으므로 사각형일 때보다 밝은 색을 입힌다.
+            var bombSize = new Vector2(0.5f, 0.5f);
+            SpriteRenderer renderer = PrototypeArt.CreateBox("Bomb", _root.transform, origin, bombSize, new Color(0.5f, 0.5f, 0.56f, 1f), 15);
+            PixelSprites.Dress(renderer, "Bomb", bombSize);
             renderer.gameObject.AddComponent<Bomb>().Launch(this, _player, marker.gameObject, origin, target, flightTime, radius);
         }
 

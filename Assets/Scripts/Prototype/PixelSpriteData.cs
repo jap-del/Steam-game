@@ -24,6 +24,8 @@ namespace SteamGame.Prototype
                 case "Flyer": return Flyer;
                 case "Potion": return Potion;
                 case "Crystal": return Crystal;
+                case "Altar": return Altar;
+                case "Bomb": return Bomb;
                 case "Door": return Door;
                 case "Slash": return Slash;
                 case "Orb": return Orb;
@@ -315,6 +317,42 @@ namespace SteamGame.Prototype
             ".....#dddd#.....",
             "......#dd#......",
             ".......##.......",
+        };
+
+        private static readonly string[] Altar =
+        {
+            ".........##.........",
+            "........#ll#........",
+            ".......#llll#.......",
+            "......#llllll#......",
+            "......#llmmll#......",
+            ".......#mmmm#.......",
+            "........#mm#........",
+            ".........##.........",
+            "....................",
+            "..################..",
+            ".#llllllllllllllll#.",
+            ".#mmmmmmmmmmmmmmmm#.",
+            "..################..",
+            "....#lmmmmmmmml#....",
+            "....#lmmmmmmmml#....",
+            "....#lmdmmmmdml#....",
+            "....#lmmmmmmmml#....",
+            "..###mmmmmmmmmm###..",
+            ".#llllllllllllllll#.",
+            ".##################.",
+        };
+
+        private static readonly string[] Bomb =
+        {
+            "....#y..",
+            "...#....",
+            "..####..",
+            ".#lmmm#.",
+            "#lmmmmm#",
+            "#mmmmmm#",
+            ".#mmmm#.",
+            "..####..",
         };
 
         private static readonly string[] Door =
