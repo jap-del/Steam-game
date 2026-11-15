@@ -121,11 +121,14 @@ namespace SteamGame.Prototype
         private float _diveFloorY;
         private SpriteRenderer _shieldVisual;
         private readonly float[] _lastHitTime = { -999f, -999f };
+        private bool _enrageAnnounced;
 
         public EnemyKind Kind { get; private set; }
         public Collider2D Collider => _collider;
         public bool IsBoss => Kind == EnemyKind.MidBoss || Kind == EnemyKind.Boss;
         public float HealthRatio => Mathf.Clamp01(_health / MaxHealth);
+        /// <summary>몸의 기본 색. 조각이 튈 때 이 색을 쓴다.</summary>
+        public Color BaseColor => _baseColor;
 
         /// <summary>처치했을 때 주는 골드.</summary>
         public int GoldValue
@@ -376,7 +379,7 @@ namespace SteamGame.Prototype
             {
                 _pattern = Pattern.Lunge;
                 Enter(State.Windup, BruteWindupTime);
-                _game.ShowPopup(warningPosition, "!", WarningColor);
+                Warn(warningPosition, "!");
                 return 0f;
             }
 
@@ -386,7 +389,7 @@ namespace SteamGame.Prototype
                 _pattern = Pattern.Slam;
                 _jumpCooldown = 1.5f;
                 Enter(State.Windup, BruteLeapWindupTime);
-                _game.ShowPopup(warningPosition, "!", WarningColor);
+                Warn(warningPosition, "!");
                 return 0f;
             }
 
@@ -529,7 +532,7 @@ namespace SteamGame.Prototype
                 if (_cooldown <= 0f)
                 {
                     Enter(State.Windup, Kind == EnemyKind.Bomber ? BomberWindupTime : ShooterWindupTime);
-                    _game.ShowPopup(_body.position + Vector2.up * (_size.y * 0.5f + 0.9f), "!", WarningColor);
+                    Warn(_body.position + Vector2.up * (_size.y * 0.5f + 0.9f), "!");
                 }
             }
             return 0f;
@@ -561,7 +564,7 @@ namespace SteamGame.Prototype
                         _diveDirection = toPlayer.sqrMagnitude > 0.01f ? toPlayer.normalized : Vector2.down;
                         _diveFloorY = _player.Position.y;
                         Enter(State.Windup, FlyerWindupTime);
-                        _game.ShowPopup(_body.position + Vector2.up * (_size.y * 0.5f + 0.9f), "!", WarningColor);
+                        Warn(_body.position + Vector2.up * (_size.y * 0.5f + 0.9f), "!");
                         return Vector2.zero;
                     }
                     return toHover.magnitude > 0.3f ? toHover.normalized * FlyerHoverSpeed : Vector2.zero;
@@ -625,7 +628,7 @@ namespace SteamGame.Prototype
                     {
                         _pattern = NextPattern(toPlayer);
                         Enter(State.Windup, BossWindupTime);
-                        _game.ShowPopup(_body.position + Vector2.up * (_size.y * 0.5f + 0.9f), PatternHint(_pattern), WarningColor);
+                        Warn(_body.position + Vector2.up * (_size.y * 0.5f + 0.9f), PatternHint(_pattern));
                         return 0f;
                     }
                     return distanceX > 3f && HasGroundAhead() ? _facing * MoveSpeed : 0f;
@@ -748,6 +751,14 @@ namespace SteamGame.Prototype
                 _game.SpawnProjectile(feet - new Vector2(_size.x * 0.5f, 0f), new Vector2(-WaveSpeed, 0f), 0.6f);
             }
             _game.ShowBlast(feet, _size.x * 0.5f + 0.8f, new Color(1f, 0.95f, 0.3f, 0.35f));
+            _game.Feel.BossSlam(feet);
+        }
+
+        /// <summary>공격 예고를 글자와 소리로 알린다.</summary>
+        private void Warn(Vector2 position, string text)
+        {
+            _game.ShowPopup(position, text, WarningColor);
+            Sfx.Play(Sound.Warn);
         }
 
         private bool IsStandingOnGround()
@@ -780,6 +791,7 @@ namespace SteamGame.Prototype
                 _game.ShowPopup((Vector2)transform.position + Vector2.up * (_size.y * 0.5f + 0.6f), "막힘", new Color(0.8f, 0.9f, 1f, 1f));
                 _flashColor = new Color(0.8f, 0.9f, 1f, 1f);
                 _flashTimer = 0.08f;
+                _game.Feel.BlockedHit((Vector2)transform.position + new Vector2(_facing * _size.x * 0.5f, 0f));
                 return;
             }
 
@@ -806,6 +818,7 @@ namespace SteamGame.Prototype
                 _flashColor = Color.white;
             }
             _flashTimer = 0.1f;
+            _game.Feel.HitEnemy(transform.position, pincer, source == HitSource.Shadow);
 
             // 예고와 공격 중에는 밀려나지 않는다. 보스는 언제나 밀려나지 않는다.
             bool armored = IsBoss || _state == State.Windup || _state == State.Attack;
@@ -827,6 +840,14 @@ namespace SteamGame.Prototype
                     Die();
                     return;
                 }
+            }
+
+            if (IsBoss && !_enrageAnnounced && HealthRatio < 0.5f)
+            {
+                // 체력이 절반 아래로 내려가면 분노한다. 몸이 붉어지고 빈틈이 짧아진다.
+                _enrageAnnounced = true;
+                _baseColor = Color.Lerp(_baseColor, new Color(1f, 0.2f, 0.12f, 1f), 0.6f);
+                _game.OnBossEnraged(this);
             }
 
             float ratio = Mathf.Clamp01(_health / MaxHealth);

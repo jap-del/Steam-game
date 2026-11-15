@@ -44,6 +44,7 @@ namespace SteamGame.Prototype
                 _player.TakeDamage(1, _to.x);
             }
             _game.ShowBlast(_to, _radius, new Color(1f, 0.55f, 0.2f, 0.55f));
+            _game.Feel.Explosion(_to);
 
             if (_marker != null) Destroy(_marker);
             Destroy(gameObject);

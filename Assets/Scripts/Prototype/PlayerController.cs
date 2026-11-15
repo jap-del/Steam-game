@@ -290,6 +290,7 @@ namespace SteamGame.Prototype
                 _shadows[i].Clone.SetAnchored(true);
             }
             _game.ShowPopup(_shadows[0].Clone.Position + Vector2.up * 1.2f, "분신 고정", new Color(0.75f, 0.6f, 1f, 1f));
+            Sfx.Play(Sound.Anchor);
         }
 
         private void ReleaseAnchor()
@@ -310,6 +311,7 @@ namespace SteamGame.Prototype
             _dashTimer = DashDuration;
             _dashCooldownTimer = _stats.DashCooldown;
             _dashDirection = _facing;
+            Sfx.Play(Sound.Dash);
         }
 
         private void TryAttack()
@@ -318,6 +320,7 @@ namespace SteamGame.Prototype
 
             _attackTimer = AttackCooldown;
             _attackedThisTick = true;
+            Sfx.Play(Sound.Slash, 0.8f);
             Combat.Slash(_body.position, _facing, _stats.PlayerDamage, HitSource.Player);
 
             if (_shadowsAnchored)
@@ -349,6 +352,9 @@ namespace SteamGame.Prototype
             // 고정된 분신은 내가 있던 자리로 옮겨 가서 정말로 자리가 바뀐다.
             if (_shadowsAnchored) _shadows[0].Clone.MoveTo(origin);
             _game.ShowPopup(destination + Vector2.up * 1.2f, "자리 바꾸기", new Color(0.75f, 0.6f, 1f, 1f));
+            Sfx.Play(Sound.Swap);
+            _game.Feel.Sparks(origin, new Color(0.75f, 0.6f, 1f, 1f), 5, 4f);
+            _game.Feel.Sparks(destination, new Color(0.75f, 0.6f, 1f, 1f), 5, 4f);
 
             if (_stats.SwapShockwaveDamage > 0f)
             {
@@ -403,6 +409,7 @@ namespace SteamGame.Prototype
                 if (_jumpBufferTimer > 0f && _coyoteTimer > 0f)
                 {
                     velocity.y = JumpSpeed;
+                    Sfx.Play(Sound.Jump, 0.7f);
                     _jumpBufferTimer = 0f;
                     _coyoteTimer = 0f;
                     _jumpCut = false;
@@ -467,6 +474,7 @@ namespace SteamGame.Prototype
         private void FallIntoPit()
         {
             _health -= 1;
+            _game.Feel.PlayerHurt();
             if (_health <= 0)
             {
                 _game.RequestRestart();
@@ -494,6 +502,7 @@ namespace SteamGame.Prototype
             float direction = _body.position.x >= sourceX ? 1f : -1f;
             _body.linearVelocity = new Vector2(direction * 6f, 7f);
             _game.ShowPopup(_body.position + Vector2.up * 1.2f, "-" + amount, new Color(1f, 0.4f, 0.4f, 1f));
+            _game.Feel.PlayerHurt();
 
             if (_health <= 0)
             {
