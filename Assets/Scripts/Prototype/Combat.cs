@@ -15,6 +15,7 @@ namespace SteamGame.Prototype
         public const float SlashReach = 1.0f;
 
         private static readonly HashSet<Enemy> HitThisAttack = new HashSet<Enemy>();
+        private static readonly HashSet<SealStone> StonesThisAttack = new HashSet<SealStone>();
 
         /// <summary>origin에서 facing 방향으로 근접 공격을 한 번 한다. 맞은 적의 수를 돌려준다.</summary>
         public static int Slash(Vector2 origin, int facing, float damage, HitSource source, float scale = 1f)
@@ -69,10 +70,18 @@ namespace SteamGame.Prototype
             int facing = fallback;
             for (int i = 0; i < hits.Length; i++)
             {
+                // 봉인석도 적처럼 노린다. 분신이 봉인석을 그냥 지나치지 않게 하기 위함이다.
+                Transform target = null;
                 Enemy enemy = hits[i].GetComponentInParent<Enemy>();
-                if (enemy == null) continue;
+                if (enemy != null) target = enemy.transform;
+                else
+                {
+                    SealStone stone = hits[i].GetComponentInParent<SealStone>();
+                    if (stone != null) target = stone.transform;
+                }
+                if (target == null) continue;
 
-                float dx = enemy.transform.position.x - origin.x;
+                float dx = target.position.x - origin.x;
                 float distance = Mathf.Abs(dx);
                 if (distance < bestDistance && distance > 0.05f)
                 {
@@ -86,10 +95,18 @@ namespace SteamGame.Prototype
         private static int Apply(Collider2D[] hits, float damage, HitSource source, Vector2 origin)
         {
             HitThisAttack.Clear();
+            StonesThisAttack.Clear();
             for (int i = 0; i < hits.Length; i++)
             {
                 Enemy enemy = hits[i].GetComponentInParent<Enemy>();
-                if (enemy == null || !HitThisAttack.Add(enemy))
+                if (enemy == null)
+                {
+                    // 봉인석은 피해를 받지 않고 맞으면 빛난다.
+                    SealStone stone = hits[i].GetComponentInParent<SealStone>();
+                    if (stone != null && StonesThisAttack.Add(stone)) stone.Hit(source);
+                    continue;
+                }
+                if (!HitThisAttack.Add(enemy))
                 {
                     continue;
                 }
@@ -99,6 +116,7 @@ namespace SteamGame.Prototype
 
             int count = HitThisAttack.Count;
             HitThisAttack.Clear();
+            StonesThisAttack.Clear();
             return count;
         }
     }

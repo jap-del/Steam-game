@@ -52,14 +52,75 @@ namespace SteamGame.Prototype
         /// <summary>2스테이지 거점부터 있는 강화의 제단.</summary>
         public bool HasAltar;
         public Vector2 Altar;
+        /// <summary>보스 기믹에 쓰는 자리 (발 위치). 1스테이지 보스방에서는 봉인석이 놓인다.</summary>
+        public readonly List<Vector2> GimmickPoints = new List<Vector2>();
     }
 
     /// <summary>
     /// 방을 만든다. 전투방은 미리 정해 둔 구간(평지, 계단, 구덩이, 언덕, 탑, 섬)을
     /// 무작위 순서로 이어 붙이고, 보스방과 상점, 퍼즐방은 정해진 모양으로 만든다.
+    /// 스테이지마다 지역이 다르다. 1스테이지는 무너진 성채, 2스테이지부터는 빛의 성소다.
+    /// 빛의 성소에는 밟으면 금이 가서 깨지는 유리 발판이 있다.
     /// </summary>
     public static class StageBuilder
     {
+        /// <summary>지역의 색과 장식.</summary>
+        private sealed class Theme
+        {
+            public string Name;
+            public Color Solid;
+            public Color Backdrop;
+            public Color Cap;
+            public Color FarWall;
+            public Color Background;
+            /// <summary>배경에 희미한 빛줄기를 내린다.</summary>
+            public bool LightShafts;
+        }
+
+        private static readonly Theme Citadel = new Theme
+        {
+            Name = "무너진 성채",
+            Solid = new Color(0.32f, 0.34f, 0.42f, 1f),
+            Backdrop = new Color(0.13f, 0.14f, 0.2f, 1f),
+            Cap = new Color(0.36f, 0.58f, 0.55f, 1f),
+            FarWall = new Color(0.105f, 0.115f, 0.165f, 1f),
+            Background = new Color(0.09f, 0.1f, 0.14f, 1f),
+        };
+
+        private static readonly Theme Sanctum = new Theme
+        {
+            Name = "빛의 성소",
+            Solid = new Color(0.55f, 0.52f, 0.6f, 1f),
+            Backdrop = new Color(0.24f, 0.22f, 0.3f, 1f),
+            Cap = new Color(0.85f, 0.75f, 0.45f, 1f),
+            FarWall = new Color(0.16f, 0.15f, 0.21f, 1f),
+            Background = new Color(0.1f, 0.09f, 0.13f, 1f),
+            LightShafts = true,
+        };
+
+        private static readonly Color GlassColor = new Color(0.7f, 0.92f, 1f, 0.6f);
+        private static readonly Color GlassCapColor = new Color(0.85f, 1f, 1f, 0.9f);
+        private static readonly Color LightShaftColor = new Color(1f, 0.95f, 0.75f, 0.07f);
+
+        private static Theme _theme = Citadel;
+
+        private static Theme ThemeFor(int stage)
+        {
+            return stage >= 2 ? Sanctum : Citadel;
+        }
+
+        /// <summary>그 스테이지의 지역 이름. 화면에 보여 준다.</summary>
+        public static string AreaNameFor(int stage)
+        {
+            return ThemeFor(stage).Name;
+        }
+
+        /// <summary>그 스테이지에서 카메라 뒤에 칠할 색.</summary>
+        public static Color BackgroundFor(int stage)
+        {
+            return ThemeFor(stage).Background;
+        }
+
         public const float GroundTop = -2.5f;
         /// <summary>이 높이 아래로 떨어지면 구덩이에 빠진 것으로 본다.</summary>
         public const float KillY = GroundTop - 9f;
@@ -68,11 +129,6 @@ namespace SteamGame.Prototype
         private const float PlatformThickness = 0.5f;
         /// <summary>밟을 수 있는 윗면에 얹는 이끼 띠의 두께. 그림에서 4픽셀이다.</summary>
         private const float CapHeight = 0.25f;
-
-        private static readonly Color SolidColor = new Color(0.32f, 0.34f, 0.42f, 1f);
-        private static readonly Color BackdropColor = new Color(0.13f, 0.14f, 0.2f, 1f);
-        private static readonly Color CapColor = new Color(0.36f, 0.58f, 0.55f, 1f);
-        private static readonly Color FarWallColor = new Color(0.105f, 0.115f, 0.165f, 1f);
 
         private delegate float ChunkBuilder(Transform parent, float x, int stage, StageLayout layout);
 
@@ -84,14 +140,17 @@ namespace SteamGame.Prototype
             var layout = new StageLayout();
             layout.Type = type;
             GroundSpans.Clear();
+            _theme = ThemeFor(stage);
 
             switch (type)
             {
                 case RoomType.MidBoss:
-                    BuildBossRoom(parent, layout, EnemyKind.MidBoss);
+                    if (stage >= 2) BuildTwinRoom(parent, layout);
+                    else BuildBossRoom(parent, layout, EnemyKind.MidBoss);
                     break;
                 case RoomType.Boss:
-                    BuildBossRoom(parent, layout, EnemyKind.Boss);
+                    if (stage >= 2) BuildLightLordRoom(parent, layout);
+                    else BuildBossRoom(parent, layout, EnemyKind.Boss);
                     break;
                 case RoomType.Shop:
                     BuildShopRoom(layout);
@@ -120,7 +179,7 @@ namespace SteamGame.Prototype
             Solid(parent, "WallRight", new Vector2(layout.Width + 0.5f, GroundTop + 8f), new Vector2(1f, 34f));
 
             // 방 뒤쪽을 덮는 먼 벽. 타일을 두 배 크기로 깔아서 멀리 있는 것처럼 보이게 한다.
-            PixelSprites.CreateTiled("FarWall", parent, new Vector2(layout.Width * 0.5f, GroundTop + 6f), new Vector2(layout.Width + 40f, 40f), "Stone", PixelSprites.PixelsPerUnit * 0.5f, FarWallColor, -20);
+            PixelSprites.CreateTiled("FarWall", parent, new Vector2(layout.Width * 0.5f, GroundTop + 6f), new Vector2(layout.Width + 40f, 40f), "Stone", PixelSprites.PixelsPerUnit * 0.5f, _theme.FarWall, -20);
             return layout;
         }
 
@@ -140,7 +199,10 @@ namespace SteamGame.Prototype
             }
             x += startWidth;
 
-            ChunkBuilder[] chunks = { Flat, Steps, Pit, Terrace, Tower, Islands };
+            // 빛의 성소에서는 구덩이 구간 대신 유리 발판이 있는 구간이 나온다.
+            ChunkBuilder[] chunks = _theme == Sanctum
+                ? new ChunkBuilder[] { Flat, Steps, Terrace, Tower, GlassBridge, GlassClimb, Colonnade }
+                : new ChunkBuilder[] { Flat, Steps, Pit, Terrace, Tower, Islands };
             int count = stage >= 3 ? 3 : 2;
             int previous = -1;
             for (int i = 0; i < count; i++)
@@ -170,6 +232,42 @@ namespace SteamGame.Prototype
             layout.PlayerSpawn = new Vector2(4f, GroundTop);
             layout.Enemies.Add(new EnemySpawn(boss, new Vector2(27f, GroundTop)));
             layout.ExitPosition = new Vector2(37f, GroundTop);
+            layout.Width = width;
+            if (boss == EnemyKind.Boss)
+            {
+                // 봉인의 수호자가 보호막을 칠 때 봉인석이 놓이는 자리: 양쪽 발판 위.
+                layout.GimmickPoints.Add(new Vector2(11f, GroundTop + 2.2f));
+                layout.GimmickPoints.Add(new Vector2(29f, GroundTop + 2.2f));
+            }
+        }
+
+        /// <summary>2스테이지 중간 보스방: 쌍둥이 수문장. 해는 가까이, 달은 멀리서 싸운다.</summary>
+        private static void BuildTwinRoom(Transform parent, StageLayout layout)
+        {
+            const float width = 40f;
+            Ground(0f, width);
+            Platform(parent, 11f, 2.2f, 4f);
+            Platform(parent, 29f, 2.2f, 4f);
+            Decorate(parent, 0f, width);
+            layout.PlayerSpawn = new Vector2(4f, GroundTop);
+            layout.Enemies.Add(new EnemySpawn(EnemyKind.TwinSun, new Vector2(22f, GroundTop)));
+            layout.Enemies.Add(new EnemySpawn(EnemyKind.TwinMoon, new Vector2(32f, GroundTop)));
+            layout.ExitPosition = new Vector2(37f, GroundTop);
+            layout.Width = width;
+        }
+
+        /// <summary>2스테이지 보스방: 백광의 군주. 양쪽 발판과, 거기서 대시로 건너가는 가운데의 높은 유리 발판.</summary>
+        private static void BuildLightLordRoom(Transform parent, StageLayout layout)
+        {
+            const float width = 42f;
+            Ground(0f, width);
+            Platform(parent, 10f, 2.4f, 4f);
+            Platform(parent, 32f, 2.4f, 4f);
+            Glass(parent, 21f, 3.6f, 5f);
+            Decorate(parent, 0f, width);
+            layout.PlayerSpawn = new Vector2(4f, GroundTop);
+            layout.Enemies.Add(new EnemySpawn(EnemyKind.LightLord, new Vector2(30f, GroundTop)));
+            layout.ExitPosition = new Vector2(39f, GroundTop);
             layout.Width = width;
         }
 
@@ -306,6 +404,51 @@ namespace SteamGame.Prototype
             return 32f;
         }
 
+        /// <summary>빛의 성소: 넓은 구덩이 위에 유리 발판 세 개. 멈춰 서면 깨지므로 계속 건너가야 한다.</summary>
+        private static float GlassBridge(Transform parent, float x, int stage, StageLayout layout)
+        {
+            Ground(x, x + 8f);
+            Glass(parent, x + 10.5f, 1f, 3f);
+            Glass(parent, x + 15f, 1.6f, 3f);
+            Glass(parent, x + 19.5f, 1f, 3f);
+            Ground(x + 22f, x + 34f);
+            Spawn(layout, EnemyKind.Brute, x + 27f, 0f);
+            Spawn(layout, EnemyKind.Shooter, x + 31f, 0f);
+            return 34f;
+        }
+
+        /// <summary>빛의 성소: 유리 발판을 밟고 올라가야 위쪽의 원거리 적에게 닿는다.</summary>
+        private static float GlassClimb(Transform parent, float x, int stage, StageLayout layout)
+        {
+            Ground(x, x + 28f);
+            Platform(parent, x + 6f, 2f, 4f);
+            Glass(parent, x + 11f, 4f, 3f);
+            Glass(parent, x + 16f, 6f, 3f);
+            Platform(parent, x + 22f, 4.4f, 4f);
+            Spawn(layout, EnemyKind.Shooter, x + 22f, 4.4f);
+            Spawn(layout, EnemyKind.Brute, x + 14f, 0f);
+            Spawn(layout, EnemyKind.Brute, x + 25f, 0f);
+            return 28f;
+        }
+
+        /// <summary>빛의 성소: 낮은 기둥 세 개 사이에서 싸우고, 기둥 위로 높은 발판이 걸쳐 있다.</summary>
+        private static float Colonnade(Transform parent, float x, int stage, StageLayout layout)
+        {
+            Ground(x, x + 30f);
+            for (int i = 0; i < 3; i++)
+            {
+                float columnX = x + 8f + i * 8f;
+                Solid(parent, "Column", new Vector2(columnX, GroundTop + 1f), new Vector2(1.5f, 2f));
+                Cap(parent, columnX - 0.75f, columnX + 0.75f, GroundTop + 2f);
+            }
+            Platform(parent, x + 16f, 4.4f, 8f);
+            Spawn(layout, EnemyKind.Shooter, x + 16f, 4.4f);
+            Spawn(layout, EnemyKind.Brute, x + 12f, 0f);
+            Spawn(layout, EnemyKind.Brute, x + 20f, 0f);
+            Spawn(layout, EnemyKind.Brute, x + 27f, 0f);
+            return 30f;
+        }
+
         // ---- 재료 ----
 
         private static void Ground(float left, float right)
@@ -335,9 +478,31 @@ namespace SteamGame.Prototype
             Cap(parent, centerX - width * 0.5f, centerX + width * 0.5f, GroundTop + height);
         }
 
+        /// <summary>
+        /// 유리 발판. 보통 발판처럼 아래에서 뚫고 올라갈 수 있지만, 플레이어가 올라서면 금이 가다가 깨진다.
+        /// 깨진 발판은 잠시 뒤 다시 생긴다.
+        /// </summary>
+        private static void Glass(Transform parent, float centerX, float height, float width)
+        {
+            Vector2 center = new Vector2(centerX, GroundTop + height - PlatformThickness * 0.5f);
+            Vector2 size = new Vector2(width, PlatformThickness);
+            SpriteRenderer body = PixelSprites.CreateTiled("GlassPlatform", parent, center, size, "Glass", PixelSprites.PixelsPerUnit, GlassColor, 0);
+            var collider = body.gameObject.AddComponent<BoxCollider2D>();
+            collider.size = size;
+            collider.offset = Vector2.zero;
+            var effector = collider.gameObject.AddComponent<PlatformEffector2D>();
+            effector.useOneWay = true;
+            effector.surfaceArc = 170f;
+            collider.usedByEffector = true;
+
+            float top = GroundTop + height;
+            SpriteRenderer cap = PixelSprites.CreateTiled("GlassCap", parent, new Vector2(centerX, top - CapHeight * 0.25f), new Vector2(width, CapHeight * 0.5f), "Cap", PixelSprites.PixelsPerUnit, GlassCapColor, 1);
+            body.gameObject.AddComponent<GlassPlatform>().Build(collider, new[] { body, cap });
+        }
+
         private static BoxCollider2D Solid(Transform parent, string name, Vector2 center, Vector2 size)
         {
-            SpriteRenderer renderer = PixelSprites.CreateTiled(name, parent, center, size, "Stone", PixelSprites.PixelsPerUnit, SolidColor, 0);
+            SpriteRenderer renderer = PixelSprites.CreateTiled(name, parent, center, size, "Stone", PixelSprites.PixelsPerUnit, _theme.Solid, 0);
             var collider = renderer.gameObject.AddComponent<BoxCollider2D>();
             // 타일로 그린 스프라이트는 크기를 늘리지 않으므로 충돌체 크기를 직접 정한다.
             collider.size = size;
@@ -348,7 +513,7 @@ namespace SteamGame.Prototype
         /// <summary>밟을 수 있는 윗면에 이끼 띠를 얹는다. 충돌하지 않는다.</summary>
         private static void Cap(Transform parent, float left, float right, float top)
         {
-            PixelSprites.CreateTiled("Cap", parent, new Vector2((left + right) * 0.5f, top - CapHeight * 0.5f), new Vector2(right - left, CapHeight), "Cap", PixelSprites.PixelsPerUnit, CapColor, 1);
+            PixelSprites.CreateTiled("Cap", parent, new Vector2((left + right) * 0.5f, top - CapHeight * 0.5f), new Vector2(right - left, CapHeight), "Cap", PixelSprites.PixelsPerUnit, _theme.Cap, 1);
         }
 
         private static void Spawn(StageLayout layout, EnemyKind kind, float x, float heightAboveGround)
@@ -364,7 +529,15 @@ namespace SteamGame.Prototype
                 float pillarWidth = Random.Range(1f, 3f);
                 float pillarHeight = Random.Range(3f, 10f);
                 float centerX = x + Random.Range(1f, width - 1f);
-                PixelSprites.CreateTiled("Backdrop", parent, new Vector2(centerX, GroundTop + pillarHeight * 0.5f), new Vector2(pillarWidth, pillarHeight), "Stone", PixelSprites.PixelsPerUnit, BackdropColor, -10);
+                PixelSprites.CreateTiled("Backdrop", parent, new Vector2(centerX, GroundTop + pillarHeight * 0.5f), new Vector2(pillarWidth, pillarHeight), "Stone", PixelSprites.PixelsPerUnit, _theme.Backdrop, -10);
+            }
+
+            if (!_theme.LightShafts) return;
+            // 빛의 성소: 높은 창에서 내려오는 희미한 빛줄기.
+            for (int i = 0; i < 2; i++)
+            {
+                float centerX = x + Random.Range(2f, width - 2f);
+                PrototypeArt.CreateBox("LightShaft", parent, new Vector2(centerX, GroundTop + 9f), new Vector2(Random.Range(1.2f, 2.4f), 22f), LightShaftColor, -15);
             }
         }
     }

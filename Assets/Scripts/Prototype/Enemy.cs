@@ -20,13 +20,20 @@ namespace SteamGame.Prototype
         Bomber = 6,
         /// <summary>날아다니는 적. 지형을 무시하고 위에서 맴돌다가 번쩍인 뒤 내리꽂는다.</summary>
         Flyer = 7,
+        /// <summary>2스테이지 중간 보스인 쌍둥이 중 해. 가까이 붙어 돌진하고 뛰어올라 내려찍는다.</summary>
+        TwinSun = 8,
+        /// <summary>2스테이지 중간 보스인 쌍둥이 중 달. 거리를 두고 탄과 폭탄을 던진다.</summary>
+        TwinMoon = 9,
+        /// <summary>2스테이지 보스 백광의 군주. 세 단계로 싸우고, 단계마다 풀어야 할 기믹이 있다.</summary>
+        LightLord = 10,
     }
 
     /// <summary>
     /// 적. 모든 공격 전에 번쩍이는 예고 동작이 있어서 보고 피할 수 있다.
     /// 예고와 공격 중에는 맞아도 밀려나지 않으므로, 계속 때리기만 해서는 막을 수 없다.
+    /// 보스의 기믹(보호막, 쌍둥이, 갑옷, 표식, 심판)은 EnemyRaid.cs에 있다.
     /// </summary>
-    public sealed class Enemy : MonoBehaviour
+    public sealed partial class Enemy : MonoBehaviour
     {
         private enum State
         {
@@ -85,6 +92,14 @@ namespace SteamGame.Prototype
             Lunge,
             Spread,
             Slam,
+            /// <summary>폭탄 세 개를 플레이어 자리와 양옆에 던진다.</summary>
+            Bombs,
+            /// <summary>플레이어 자리와 일정한 간격으로 빛기둥을 내린다.</summary>
+            Pillars,
+            /// <summary>분신에게 빛의 표식을 붙인다. 몇 초 뒤 분신 자리에서 터진다.</summary>
+            Mark,
+            /// <summary>긴 예고 뒤 방 전체에 빛을 내린다. 분신의 그림자 속만 안전하다.</summary>
+            Judgment,
         }
 
         private static readonly Color WarningColor = new Color(1f, 0.95f, 0.3f, 1f);
@@ -125,7 +140,9 @@ namespace SteamGame.Prototype
 
         public EnemyKind Kind { get; private set; }
         public Collider2D Collider => _collider;
-        public bool IsBoss => Kind == EnemyKind.MidBoss || Kind == EnemyKind.Boss;
+        public bool IsBoss => Kind == EnemyKind.MidBoss || Kind == EnemyKind.Boss || Kind == EnemyKind.TwinSun || Kind == EnemyKind.TwinMoon || Kind == EnemyKind.LightLord;
+        /// <summary>스테이지 끝의 보스인지. 중간 보스가 아니다.</summary>
+        public bool IsFinalBoss => Kind == EnemyKind.Boss || Kind == EnemyKind.LightLord;
         public float HealthRatio => Mathf.Clamp01(_health / MaxHealth);
         /// <summary>몸의 기본 색. 조각이 튈 때 이 색을 쓴다.</summary>
         public Color BaseColor => _baseColor;
@@ -139,6 +156,9 @@ namespace SteamGame.Prototype
                 {
                     case EnemyKind.MidBoss: return 30;
                     case EnemyKind.Boss: return 60;
+                    case EnemyKind.TwinSun:
+                    case EnemyKind.TwinMoon: return 20;
+                    case EnemyKind.LightLord: return 80;
                     case EnemyKind.Dummy: return 0;
                     default: return 5;
                 }
@@ -156,6 +176,9 @@ namespace SteamGame.Prototype
                 case EnemyKind.Shield: return new Vector2(1f, 1.4f);
                 case EnemyKind.Bomber: return new Vector2(0.9f, 1f);
                 case EnemyKind.Flyer: return new Vector2(0.9f, 0.6f);
+                case EnemyKind.TwinSun: return new Vector2(1.4f, 2f);
+                case EnemyKind.TwinMoon: return new Vector2(1.3f, 1.9f);
+                case EnemyKind.LightLord: return new Vector2(2.2f, 3f);
                 default: return new Vector2(0.9f, 1.2f);
             }
         }
@@ -171,6 +194,9 @@ namespace SteamGame.Prototype
                 case EnemyKind.Shield: return new Color(0.45f, 0.6f, 0.8f, 1f);
                 case EnemyKind.Bomber: return new Color(0.5f, 0.7f, 0.3f, 1f);
                 case EnemyKind.Flyer: return new Color(0.85f, 0.4f, 0.8f, 1f);
+                case EnemyKind.TwinSun: return new Color(0.95f, 0.7f, 0.25f, 1f);
+                case EnemyKind.TwinMoon: return new Color(0.55f, 0.5f, 0.95f, 1f);
+                case EnemyKind.LightLord: return new Color(0.9f, 0.8f, 0.5f, 1f);
                 default: return new Color(0.85f, 0.3f, 0.35f, 1f);
             }
         }
@@ -214,6 +240,8 @@ namespace SteamGame.Prototype
                 // 방패가 어느 쪽을 막고 있는지 보여 주는 밝은 막대.
                 _shieldVisual = PrototypeArt.CreateBox("Shield", transform, Vector2.zero, new Vector2(0.16f, _size.y * 0.9f), new Color(0.85f, 0.95f, 1f, 1f), 9);
             }
+
+            BuildRaid();
         }
 
         /// <summary>방패병이 지금 그쪽을 막고 있는지. 공격 뒤 빈틈에는 방패를 내린다.</summary>
@@ -243,7 +271,8 @@ namespace SteamGame.Prototype
                 // 빈틈: 어둡게 보인다.
                 color = new Color(_baseColor.r * 0.55f, _baseColor.g * 0.55f, _baseColor.b * 0.55f, 1f);
             }
-            _sprite.color = color;
+            _sprite.color = RaidTint(color);
+            UpdateRaidVisuals();
 
             if (_shieldVisual != null)
             {
@@ -261,6 +290,9 @@ namespace SteamGame.Prototype
                 Die();
                 return;
             }
+
+            // 쓰러진 쌍둥이는 일어날 때까지 아무것도 하지 않는다.
+            if (TickRaid()) return;
 
             bool stunned = _stunTimer > 0f;
             if (stunned) _stunTimer -= Time.fixedDeltaTime;
@@ -605,11 +637,12 @@ namespace SteamGame.Prototype
         /// <summary>
         /// 보스: 거리를 좁히다가 정해진 순서대로 공격을 고른다.
         /// 모든 공격은 번쩍이는 예고 뒤에 나오고, 끝나면 빈틈이 생긴다.
+        /// 공격 순서, 예고 시간, 움직임은 보스마다 다르고 EnemyRaid.cs에서 정한다.
         /// </summary>
         private float TickBoss(Vector2 toPlayer)
         {
             float distanceX = Mathf.Abs(toPlayer.x);
-            bool enraged = HealthRatio < 0.5f;
+            bool enraged = IsBossEnraged;
 
             switch (_state)
             {
@@ -627,21 +660,39 @@ namespace SteamGame.Prototype
                     if (_cooldown <= 0f)
                     {
                         _pattern = NextPattern(toPlayer);
-                        Enter(State.Windup, BossWindupTime);
+                        Enter(State.Windup, WindupFor(_pattern));
                         Warn(_body.position + Vector2.up * (_size.y * 0.5f + 0.9f), PatternHint(_pattern));
+                        OnPatternWindup(_pattern);
                         return 0f;
                     }
-                    return distanceX > 3f && HasGroundAhead() ? _facing * MoveSpeed : 0f;
+                    return ChaseSpeed(toPlayer);
 
                 case State.Windup:
                     _stateTimer -= Time.fixedDeltaTime;
                     if (_stateTimer > 0f) return 0f;
 
-                    if (_pattern == Pattern.Spread)
+                    switch (_pattern)
                     {
-                        FireSpread(toPlayer, Kind == EnemyKind.Boss ? 5 : 3);
-                        Enter(State.Recover, 0.9f);
-                        return 0f;
+                        case Pattern.Spread:
+                            FireSpread(toPlayer, SpreadCount());
+                            Enter(State.Recover, 0.9f);
+                            return 0f;
+                        case Pattern.Bombs:
+                            ThrowBombs();
+                            Enter(State.Recover, 0.9f);
+                            return 0f;
+                        case Pattern.Pillars:
+                            CallPillars();
+                            Enter(State.Recover, enraged ? 0.7f : 1f);
+                            return 0f;
+                        case Pattern.Mark:
+                            PlaceMark();
+                            Enter(State.Recover, 0.5f);
+                            return 0f;
+                        case Pattern.Judgment:
+                            Judge();
+                            Enter(State.Recover, 1.4f);
+                            return 0f;
                     }
                     if (_pattern == Pattern.Slam)
                     {
@@ -680,7 +731,19 @@ namespace SteamGame.Prototype
                         _player.TakeDamage(1, _body.position.x);
                     }
                     _stateTimer -= Time.fixedDeltaTime;
-                    if (_stateTimer <= 0f) Enter(State.Recover, enraged ? 0.8f : 1.1f);
+                    if (_stateTimer <= 0f)
+                    {
+                        if (_lungesLeft > 0)
+                        {
+                            // 한 번 더 돌진한다. 짧게 예고하고 플레이어 쪽으로 다시 돈다.
+                            _lungesLeft--;
+                            _facing = toPlayer.x >= 0f ? 1 : -1;
+                            Enter(State.Windup, 0.35f);
+                            Warn(_body.position + Vector2.up * (_size.y * 0.5f + 0.9f), PatternHint(Pattern.Lunge));
+                            return 0f;
+                        }
+                        Enter(State.Recover, enraged ? 0.8f : 1.1f);
+                    }
                     return HasGroundAhead() ? _facing * BossLungeSpeed : 0f;
 
                 default:
@@ -688,7 +751,7 @@ namespace SteamGame.Prototype
                     if (_stateTimer <= 0f)
                     {
                         _state = State.Chase;
-                        _cooldown = enraged ? 0.6f : 1.1f;
+                        _cooldown = BossCooldown(enraged);
                     }
                     return 0f;
             }
@@ -697,6 +760,10 @@ namespace SteamGame.Prototype
         private Pattern NextPattern(Vector2 toPlayer)
         {
             _patternIndex++;
+
+            // 기믹이 있는 보스는 자기 순서를 따른다.
+            Pattern raidPattern;
+            if (TryRaidPattern(toPlayer, out raidPattern)) return raidPattern;
 
             // 플레이어가 발판 위에 있으면 돌진은 닿지 않는다. 뛰어올라 덮치거나 탄을 쏜다.
             if (toPlayer.y > 1.5f)
@@ -716,6 +783,10 @@ namespace SteamGame.Prototype
             {
                 case Pattern.Spread: return "탄!";
                 case Pattern.Slam: return "내려찍기!";
+                case Pattern.Bombs: return "폭탄!";
+                case Pattern.Pillars: return "빛기둥!";
+                case Pattern.Mark: return "표식!";
+                case Pattern.Judgment: return "심판!";
                 default: return "돌진!";
             }
         }
@@ -745,7 +816,7 @@ namespace SteamGame.Prototype
             }
 
             Vector2 feet = _body.position + new Vector2(0f, -_size.y * 0.5f + 0.35f);
-            if (Kind == EnemyKind.Boss)
+            if (Kind == EnemyKind.Boss || Kind == EnemyKind.LightLord)
             {
                 _game.SpawnProjectile(feet + new Vector2(_size.x * 0.5f, 0f), new Vector2(WaveSpeed, 0f), 0.6f);
                 _game.SpawnProjectile(feet - new Vector2(_size.x * 0.5f, 0f), new Vector2(-WaveSpeed, 0f), 0.6f);
@@ -783,6 +854,8 @@ namespace SteamGame.Prototype
         public void TakeHit(float damage, HitSource source, Vector2 knockback)
         {
             if (_dead) return;
+            // 쓰러진 쌍둥이와, 보호막이나 갑옷을 두른 보스는 피해를 받지 않는다.
+            if (BlockedByRaid()) return;
 
             // 방패병은 앞에서 온 공격을 막는다. 밀려나는 방향의 반대쪽이 공격자가 있는 쪽이다.
             int attackerSide = knockback.x >= 0f ? -1 : 1;
@@ -802,6 +875,8 @@ namespace SteamGame.Prototype
             _lastHitTime[self] = Time.time;
 
             if (pincer) damage *= _game.Stats.PincerMultiplier;
+            // 기믹을 풀어 보스가 무너져 있는 동안에는 더 아프게 맞는다.
+            damage *= DamageTakenScale;
             _health -= damage;
 
             Vector2 popupPosition = (Vector2)transform.position + Vector2.up * (_size.y * 0.5f + 0.6f);
@@ -835,6 +910,11 @@ namespace SteamGame.Prototype
                 {
                     _health = MaxHealth;
                 }
+                else if (TryGoDown())
+                {
+                    // 쌍둥이는 바로 죽지 않고 쓰러진다. 짝이 이미 쓰러져 있었다면 둘 다 끝났다.
+                    return;
+                }
                 else
                 {
                     Die();
@@ -842,14 +922,22 @@ namespace SteamGame.Prototype
                 }
             }
 
-            if (IsBoss && !_enrageAnnounced && HealthRatio < 0.5f)
+            if ((Kind == EnemyKind.MidBoss || Kind == EnemyKind.Boss) && !_enrageAnnounced && HealthRatio < 0.5f)
             {
                 // 체력이 절반 아래로 내려가면 분노한다. 몸이 붉어지고 빈틈이 짧아진다.
+                // 봉인의 수호자는 이때 보호막을 친다.
                 _enrageAnnounced = true;
                 _baseColor = Color.Lerp(_baseColor, new Color(1f, 0.2f, 0.12f, 1f), 0.6f);
-                _game.OnBossEnraged(this);
+                if (Kind == EnemyKind.Boss) RaiseSeal();
+                else _game.OnBossEnraged(this);
             }
+            CheckRaidPhases();
 
+            UpdateHealthBar();
+        }
+
+        private void UpdateHealthBar()
+        {
             float ratio = Mathf.Clamp01(_health / MaxHealth);
             _healthFill.localScale = new Vector3(ratio, 0.08f, 1f);
             _healthFill.localPosition = new Vector3(-(1f - ratio) * 0.5f, _healthFill.localPosition.y, 0f);
@@ -859,6 +947,7 @@ namespace SteamGame.Prototype
         {
             if (_dead) return;
             _dead = true;
+            ClearRaidObjects();
             _game.OnEnemyDied(this);
             Destroy(gameObject);
         }
