@@ -31,6 +31,11 @@ namespace SteamGame.Prototype
         Beam,
         Judgment,
         Mark,
+        Tick,
+        Cage,
+        Freeze,
+        Spike,
+        Clear,
     }
 
     /// <summary>
@@ -206,6 +211,20 @@ namespace SteamGame.Prototype
                     return Build(name, 1.4f, new[] { new Tone(110f, 55f, 0.6f, 1.5f), new Tone(880f, 440f, 0.25f, 2f), new Tone(1320f, 660f, 0.15f, 2.5f) }, 0.6f, 2.5f, 0.3f, false);
                 case Sound.Mark:
                     return Build(name, 0.5f, new[] { new Tone(660f, 990f, 0.25f, 6f), new Tone(990f, 1320f, 0.18f, 6f, 0.12f) }, 0f, 0f, 1f, false);
+                case Sound.Tick:
+                    // 시계 초침. 짧고 높은 딸깍.
+                    return Build(name, 0.08f, new[] { new Tone(3200f, 2600f, 0.22f, 60f), new Tone(1600f, 1300f, 0.12f, 50f) }, 0.25f, 60f, 1f, false);
+                case Sound.Cage:
+                    // 쇠창살이 내려꽂히는 소리.
+                    return Build(name, 0.7f, new[] { new Tone(440f, 415f, 0.25f, 4f, 0f, true), new Tone(660f, 622f, 0.18f, 5f), new Tone(1320f, 1245f, 0.1f, 6f) }, 0.3f, 9f, 0.7f, false);
+                case Sound.Freeze:
+                    // 시간이 멈출 때 얼어붙는 높은 화음.
+                    return Build(name, 0.9f, new[] { new Tone(1568f, 1568f, 0.18f, 3f), new Tone(2093f, 2093f, 0.14f, 3f, 0.05f), new Tone(784f, 392f, 0.3f, 3f) }, 0.3f, 3f, 1f, true);
+                case Sound.Spike:
+                    return Build(name, 0.25f, new[] { new Tone(1800f, 2400f, 0.12f, 14f), new Tone(900f, 1200f, 0.1f, 12f) }, 0.35f, 18f, 0.9f, false);
+                case Sound.Clear:
+                    // 한 판 클리어. 올라가는 화음 뒤에 길게 울린다.
+                    return Build(name, 1.8f, new[] { new Tone(523f, 523f, 0.22f, 3f), new Tone(659f, 659f, 0.22f, 3f, 0.14f), new Tone(784f, 784f, 0.22f, 3f, 0.28f), new Tone(1047f, 1047f, 0.26f, 1.4f, 0.42f), new Tone(784f, 784f, 0.16f, 1.4f, 0.42f) }, 0f, 0f, 1f, false);
                 default:
                     return null;
             }

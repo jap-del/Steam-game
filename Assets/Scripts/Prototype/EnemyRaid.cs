@@ -112,6 +112,8 @@ namespace SteamGame.Prototype
                     case EnemyKind.TwinSun: return "해의 수문장";
                     case EnemyKind.TwinMoon: return "달의 수문장";
                     case EnemyKind.LightLord: return "백광의 군주";
+                    case EnemyKind.ClockKnight: return "태엽 기사";
+                    case EnemyKind.ClockMaster: return "시계탑의 주인";
                     default: return "";
                 }
             }
@@ -126,6 +128,8 @@ namespace SteamGame.Prototype
                 if (_sealed) return "보호막";
                 if (_staggerTimer > 0f) return "무너짐";
                 if (_armored) return "빛의 갑옷";
+                string clock = ClockBarStatus;
+                if (clock != null) return clock;
                 if (Kind == EnemyKind.LightLord && _phase >= 3) return "일식";
                 if (_twin != null && _twin._downed) return "격노";
                 if (_enrageAnnounced) return "분노";
@@ -140,7 +144,7 @@ namespace SteamGame.Prototype
             {
                 if (Kind == EnemyKind.LightLord) return LordMarks;
                 if (Kind == EnemyKind.Boss || Kind == EnemyKind.MidBoss) return HalfMark;
-                return null;
+                return ClockPhaseMarks;
             }
         }
 
@@ -158,6 +162,7 @@ namespace SteamGame.Prototype
 
         private void BuildRaid()
         {
+            BuildClock();
             if (Kind != EnemyKind.Boss && Kind != EnemyKind.LightLord) return;
 
             // 보호막이나 갑옷을 두르면 몸 둘레에 빛이 생긴다.
@@ -181,6 +186,7 @@ namespace SteamGame.Prototype
 
             if (_sealed) TickSeal(dt);
             if (Kind == EnemyKind.LightLord) TickLord(dt);
+            if (IsClockBoss) TickClock(dt);
             if (IsBoss) TickDropThrough();
             return false;
         }
@@ -320,6 +326,7 @@ namespace SteamGame.Prototype
 
         private void ClearRaidObjects()
         {
+            ClearClockObjects();
             ClearMark();
             ClearShadowPool();
             if (_seals != null)
@@ -349,7 +356,8 @@ namespace SteamGame.Prototype
             {
                 switch (Kind)
                 {
-                    case EnemyKind.LightLord: return _phase >= 3;
+                    case EnemyKind.LightLord:
+                    case EnemyKind.ClockMaster: return _phase >= 3;
                     // 짝이 쓰러져 있는 동안 남은 쌍둥이는 몰아친다.
                     case EnemyKind.TwinSun:
                     case EnemyKind.TwinMoon: return _twin != null && _twin._downed;
@@ -365,7 +373,8 @@ namespace SteamGame.Prototype
                 case Pattern.Judgment: return JudgmentCastTime;
                 case Pattern.Mark: return 0.7f;
                 case Pattern.Pillars: return 0.45f;
-                default: return Kind == EnemyKind.LightLord && _phase >= 3 ? 0.42f : BossWindupTime;
+                case Pattern.Cage: return CageWindup;
+                default: return (Kind == EnemyKind.LightLord || Kind == EnemyKind.ClockMaster) && _phase >= 3 ? 0.42f : BossWindupTime;
             }
         }
 
@@ -374,6 +383,7 @@ namespace SteamGame.Prototype
             switch (Kind)
             {
                 case EnemyKind.LightLord: return _phase >= 3 ? 0.4f : 0.75f;
+                case EnemyKind.ClockMaster: return _phase >= 3 ? 0.4f : 0.7f;
                 case EnemyKind.TwinSun:
                 case EnemyKind.TwinMoon: return enraged ? 0.3f : 0.8f;
                 default: return enraged ? 0.45f : 0.9f;
@@ -385,8 +395,10 @@ namespace SteamGame.Prototype
             switch (Kind)
             {
                 case EnemyKind.Boss:
-                case EnemyKind.TwinMoon: return 5;
+                case EnemyKind.TwinMoon:
+                case EnemyKind.ClockKnight: return 5;
                 case EnemyKind.LightLord: return _phase >= 3 ? 9 : 7;
+                case EnemyKind.ClockMaster: return _phase >= 3 ? 7 : 5;
                 default: return 3;
             }
         }
@@ -424,6 +436,10 @@ namespace SteamGame.Prototype
                     return true;
                 case EnemyKind.LightLord:
                     pattern = NextLordPattern(toPlayer);
+                    return true;
+                case EnemyKind.ClockKnight:
+                case EnemyKind.ClockMaster:
+                    pattern = NextClockPattern(toPlayer);
                     return true;
                 default:
                     return false;
@@ -632,6 +648,7 @@ namespace SteamGame.Prototype
         /// <summary>체력이 단계의 경계를 넘으면 다음 단계로 간다. 한 번 맞을 때 한 단계씩만 넘어간다.</summary>
         private void CheckRaidPhases()
         {
+            CheckClockPhases();
             if (Kind != EnemyKind.LightLord) return;
 
             if (_phase == 1 && HealthRatio <= LordArmorAt)

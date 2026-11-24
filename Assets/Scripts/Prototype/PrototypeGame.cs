@@ -13,7 +13,8 @@ namespace SteamGame.Prototype
     /// 첫 거점에서는 난이도 문으로 들어가 판을 시작하고, 그 뒤의 거점에서는 그림자 조각으로 강화를 하나 산다.
     /// 적을 잡아 모은 그림자 조각은 죽어도 남고 상점에서도 쓴다.
     /// 중간 보스방과 보스방에 들어가면 짧은 등장 연출이 나온 뒤에 싸움이 시작된다.
-    /// 보스는 풀어야 할 기믹이 있다(EnemyRaid.cs). 기믹의 힌트는 화면 위쪽 세 번째 줄에 나온다.
+    /// 보스는 풀어야 할 기믹이 있다(EnemyRaid.cs, EnemyClock.cs). 기믹의 힌트는 화면 위쪽 세 번째 줄에 나온다.
+    /// 한 판은 세 스테이지다. 3-6의 시계탑의 주인을 쓰러뜨리고 문으로 나가면 클리어 화면이 나오고 첫 거점으로 돌아간다.
     /// </summary>
     public sealed class PrototypeGame : MonoBehaviour
     {
@@ -21,6 +22,8 @@ namespace SteamGame.Prototype
         public const string PrototypeSceneName = "SampleScene";
 
         public const int RoomsPerStage = 6;
+        /// <summary>마지막 스테이지. 이 스테이지의 보스방을 나가면 한 판이 끝난다.</summary>
+        public const int FinalStage = 3;
 
         private const float PopupLifetime = 0.8f;
         private const int HealOnStageClear = 2;
@@ -33,6 +36,8 @@ namespace SteamGame.Prototype
         private const int ShardsPerBoss = 10;
         /// <summary>쌍둥이 수문장은 둘이라서 하나당 조금 적게 준다.</summary>
         private const int ShardsPerTwin = 3;
+        /// <summary>한 판을 클리어하면 더 주는 그림자 조각.</summary>
+        private const int ShardsPerClear = 20;
         private const float ResetConfirmWindow = 2f;
         /// <summary>그림자 조각으로 내는 값: 거점의 제단에서 강화 하나, 상점의 마지막 물건.</summary>
         private const int AltarPrice = 12;
@@ -147,6 +152,13 @@ namespace SteamGame.Prototype
         private bool _puzzleSolved;
         private bool _roomCleared;
         private bool _restartRequested;
+        /// <summary>한 판을 클리어해서 클리어 화면을 보여 주는 중인지.</summary>
+        private bool _runCleared;
+        private float _runStartTime;
+        private float _clearSeconds;
+        private float _clearInputAt;
+        private int _clearBonus;
+        private bool _clearNewBest;
 
         /// <summary>이번 판의 수치. 강화를 고르면 바뀌고, 죽으면 처음으로 돌아간다.</summary>
         public RunStats Stats { get; private set; }
@@ -160,6 +172,9 @@ namespace SteamGame.Prototype
         /// <summary>지금 켜져 있는 게임. 유리 발판이나 봉인석처럼 게임을 직접 받지 못한 물건이 쓴다.</summary>
         public static PrototypeGame Current => _instance;
 
+        /// <summary>지금 방의 플레이어. 바닥 가시처럼 게임을 직접 받지 못한 물건이 쓴다.</summary>
+        public PlayerController Player => _player;
+
         /// <summary>지금 방의 가로 길이.</summary>
         public float RoomWidth => _layout != null ? _layout.Width : 0f;
 
@@ -170,7 +185,7 @@ namespace SteamGame.Prototype
         /// 강화를 고르는 동안과 보스 등장 연출 동안에는 게임이 멈춘다.
         /// 연출을 건너뛴 키가 점프나 공격으로 이어지지 않도록, 연출이 끝난 프레임까지 멈춘 것으로 친다.
         /// </summary>
-        public bool IsPaused => _choices != null || _introActive || Time.frameCount == _introEndFrame;
+        public bool IsPaused => _choices != null || _introActive || Time.frameCount == _introEndFrame || _runCleared;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetStatics()
@@ -220,6 +235,13 @@ namespace SteamGame.Prototype
             {
                 _restartRequested = false;
                 StartRun();
+                return;
+            }
+
+            if (_runCleared)
+            {
+                // 클리어 화면. 잘못 눌러 바로 넘어가지 않도록 1초 뒤부터 받는다.
+                if (Time.unscaledTime >= _clearInputAt && ContinuePressed()) _restartRequested = true;
                 return;
             }
 
@@ -300,7 +322,11 @@ namespace SteamGame.Prototype
         private void StartRun()
         {
             // 방 번호 0은 거점이다. 첫 거점을 떠난 뒤라면 판을 하던 중에 죽었거나 다시 시작한 것이다.
-            if (_stage > 1 || _room >= 1)
+            if (_runCleared)
+            {
+                _lastRunSummary = "지난 판: 클리어! " + _difficulty.Title + " 난이도, " + FormatTime(_clearSeconds) + ", " + MetaProgress.CurrencyName + " " + _runShards + "개를 모았다";
+            }
+            else if (_stage > 1 || _room >= 1)
             {
                 string reached = _room >= 1 ? _stage + "-" + _room : _stage + "스테이지 거점";
                 _lastRunSummary = "지난 판: " + reached + "까지 갔고 " + MetaProgress.CurrencyName + " " + _runShards + "개를 모았다";
@@ -314,6 +340,8 @@ namespace SteamGame.Prototype
             Stats = new RunStats();
             _difficulty = Difficulty.Selected;
             _pendingDifficulty = -1;
+            _runCleared = false;
+            _runStartTime = Time.time;
             _stage = 1;
             _room = 0;
             _gold = 0;
@@ -438,9 +466,11 @@ namespace SteamGame.Prototype
             Enemy boss = _bosses[0];
             bool twins = _bosses.Count > 1;
             _introTitle = twins ? "쌍둥이 수문장" : boss.BossName;
-            _introSubtitle = _stage + "-" + _room + (boss.IsFinalBoss ? " 보스" : " 중간 보스");
+            _introSubtitle = _stage + "-" + _room + (boss.IsFinalBoss ? (_stage >= FinalStage ? " 마지막 보스" : " 보스") : " 중간 보스");
             _introColor = boss.IsFinalBoss ? new Color(1f, 0.3f, 0.3f, 1f) : new Color(0.95f, 0.5f, 0.85f, 1f);
             if (boss.Kind == EnemyKind.LightLord) _introColor = new Color(1f, 0.9f, 0.55f, 1f);
+            else if (boss.Kind == EnemyKind.ClockKnight) _introColor = new Color(0.6f, 0.85f, 1f, 1f);
+            else if (boss.Kind == EnemyKind.ClockMaster) _introColor = new Color(1f, 0.7f, 0.35f, 1f);
             Time.timeScale = 0f;
 
             if (_follow != null)
@@ -666,6 +696,9 @@ namespace SteamGame.Prototype
                 case EnemyKind.TwinSun:
                 case EnemyKind.TwinMoon: return 280f + 100f * Mathf.Max(0, extra - 1);
                 case EnemyKind.LightLord: return 1000f + 300f * Mathf.Max(0, extra - 1);
+                // 3스테이지 보스들. 마지막 스테이지라 더 강해지지 않는다.
+                case EnemyKind.ClockKnight: return 700f;
+                case EnemyKind.ClockMaster: return 1500f;
                 case EnemyKind.Shield: return 40f + 12f * extra;
                 case EnemyKind.Flyer: return 20f + 6f * extra;
                 default: return 30f + 10f * extra;
@@ -751,6 +784,13 @@ namespace SteamGame.Prototype
                 return;
             }
 
+            // 마지막 스테이지의 보스방까지 깼다: 한 판 클리어.
+            if (_stage >= FinalStage)
+            {
+                ClearRun();
+                return;
+            }
+
             // 보스방까지 깼다: 스테이지 클리어. 체력을 조금 회복하고 다음 스테이지의 거점으로 간다.
             // 강화는 그 거점의 제단에서 하나 고른다.
             _player.Heal(HealOnStageClear);
@@ -758,6 +798,42 @@ namespace SteamGame.Prototype
             _stage++;
             _room = 0;
             BuildRoom(health);
+        }
+
+        /// <summary>한 판을 클리어했다. 기록을 남기고 클리어 화면을 띄운다.</summary>
+        private void ClearRun()
+        {
+            _clearSeconds = Time.time - _runStartTime;
+            _clearBonus = Mathf.CeilToInt(ShardsPerClear * _difficulty.ShardScale);
+            _shards += _clearBonus;
+            _runShards += _clearBonus;
+            MetaProgress.Shards = _shards;
+            _clearNewBest = MetaProgress.RecordClear(_clearSeconds);
+            MetaProgress.Save();
+
+            _runCleared = true;
+            _clearInputAt = Time.unscaledTime + 1f;
+            Feel.CancelFreeze();
+            Feel.SetVignette(BossVignetteColor, 0f);
+            Time.timeScale = 0f;
+            Sfx.StopBossMusic();
+            Sfx.Play(Sound.Clear);
+        }
+
+        private static bool ContinuePressed()
+        {
+            Keyboard keyboard = Keyboard.current;
+            if (keyboard != null && (keyboard.eKey.wasPressedThisFrame || keyboard.spaceKey.wasPressedThisFrame || keyboard.enterKey.wasPressedThisFrame)) return true;
+
+            Gamepad gamepad = Gamepad.current;
+            return gamepad != null && (gamepad.buttonSouth.wasPressedThisFrame || gamepad.startButton.wasPressedThisFrame);
+        }
+
+        /// <summary>초를 "12분 05초"처럼 쓴다.</summary>
+        private static string FormatTime(float seconds)
+        {
+            int total = Mathf.Max(0, Mathf.FloorToInt(seconds));
+            return total / 60 + "분 " + (total % 60).ToString("00") + "초";
         }
 
         // ---- 강화 선택 ----
@@ -990,14 +1066,26 @@ namespace SteamGame.Prototype
             // 첫 거점에서는 아직 강화가 없으므로 최대 체력을 기본값에서 다시 계산한다.
             Stats.MaxHealth = new RunStats().MaxHealth + _difficulty.MaxHealthBonus;
             _room = 1;
+            _runStartTime = Time.time;
             BuildRoom(Stats.MaxHealth);
         }
 
         /// <summary>테스트용으로 거점에서 바로 다른 방으로 간다. 보스 기믹을 여러 번 시험해 볼 때 쓴다.</summary>
         private void TestJump(int target)
         {
+            if (target == 0 && _stage >= FinalStage)
+            {
+                ShowPopup(_player.Position + Vector2.up * 1.6f, "여기가 마지막 스테이지다", DenyColor);
+                Sfx.Play(Sound.Deny);
+                return;
+            }
+
             // 첫 거점에서 건너뛰면 난이도 문으로 들어간 것처럼 최대 체력을 맞춘다.
-            if (!_layout.HasExit) Stats.MaxHealth = new RunStats().MaxHealth + _difficulty.MaxHealthBonus;
+            if (!_layout.HasExit)
+            {
+                Stats.MaxHealth = new RunStats().MaxHealth + _difficulty.MaxHealthBonus;
+                _runStartTime = Time.time;
+            }
             if (target == 0)
             {
                 _stage++;
@@ -1185,6 +1273,18 @@ namespace SteamGame.Prototype
             Sfx.Play(Sound.Shoot, 0.7f);
         }
 
+        /// <summary>바닥을 따라 굴러오는 톱니바퀴. 탄처럼 벽에 닿으면 사라지고 대시로 지나갈 수 있다.</summary>
+        public void SpawnGear(Vector2 origin, Vector2 velocity, float size)
+        {
+            if (_root == null) return;
+            var gearSize = new Vector2(size, size);
+            SpriteRenderer renderer = PrototypeArt.CreateBox("Gear", _root.transform, origin, gearSize, new Color(0.95f, 0.68f, 0.32f, 1f), 15);
+            PixelSprites.Dress(renderer, "Gear", gearSize);
+            renderer.gameObject.AddComponent<Projectile>().Launch(_player, velocity);
+            renderer.gameObject.AddComponent<GearSpin>().Speed = velocity.x > 0f ? -540f : 540f;
+            Sfx.Play(Sound.Shoot, 0.6f);
+        }
+
         public void SpawnBomb(Vector2 origin, Vector2 target, float flightTime, float radius)
         {
             if (_root == null) return;
@@ -1306,6 +1406,12 @@ namespace SteamGame.Prototype
             GUI.Label(new Rect(16f, Screen.height - 40f, 1600f, 28f), "이동 A/D 또는 방향키    점프 Space    공격 J 또는 마우스 왼쪽    대시 Shift    자리 바꾸기 K 또는 마우스 오른쪽    분신 고정 S    구매 E    다시 시작 R    소리 " + (Sfx.Muted ? "켜기" : "끄기") + " M", _hudStyle);
             GUI.color = Color.white;
 
+            if (_runCleared)
+            {
+                DrawClearScreen();
+                return;
+            }
+
             if (_choices != null)
             {
                 DrawChoices();
@@ -1335,10 +1441,11 @@ namespace SteamGame.Prototype
             GUI.color = Color.white;
         }
 
-        /// <summary>보스 기믹의 표시: 분신에 붙은 표식의 남은 초, 심판까지의 카운트다운.</summary>
+        /// <summary>보스 기믹의 표시: 분신에 붙은 표식의 남은 초, 시계 감옥과 심판까지의 카운트다운.</summary>
         private void DrawRaidLabels()
         {
             float judgment = 0f;
+            float cage = 0f;
             for (int i = 0; i < _bosses.Count; i++)
             {
                 Enemy boss = _bosses[i];
@@ -1348,6 +1455,16 @@ namespace SteamGame.Prototype
                     DrawWorldLabel(boss.MarkPosition + Vector2.up * 1.3f, Mathf.CeilToInt(boss.MarkRemaining).ToString(), new Color(1f, 0.92f, 0.6f, 1f), 100f);
                 }
                 judgment = Mathf.Max(judgment, boss.JudgmentRemaining);
+                cage = Mathf.Max(cage, boss.CageRemaining);
+            }
+
+            if (cage > 0f)
+            {
+                // 시간이 멈출 때가 다가올수록 화면이 푸르게 차오른다.
+                float c = 1f - Mathf.Clamp01(cage / Enemy.CageTime);
+                GUI.color = new Color(0.55f, 0.8f, 1f, 0.22f * c * c);
+                GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
+                DrawBigText("정지 " + Mathf.CeilToInt(cage), new Color(0.65f, 0.88f, 1f, 1f));
             }
             if (judgment <= 0f) return;
 
@@ -1356,12 +1473,57 @@ namespace SteamGame.Prototype
             GUI.color = new Color(1f, 0.97f, 0.85f, 0.35f * t * t);
             GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
 
-            string text = "심판 " + Mathf.CeilToInt(judgment);
+            DrawBigText("심판 " + Mathf.CeilToInt(judgment), new Color(1f, 0.95f, 0.7f, 1f));
+        }
+
+        /// <summary>화면 위쪽 가운데에 그림자를 깐 큰 글씨를 쓴다.</summary>
+        private void DrawBigText(string text, Color color)
+        {
             float y = Screen.height * 0.2f;
             GUI.color = new Color(0f, 0f, 0f, 0.7f);
             GUI.Label(new Rect(3f, y + 3f, Screen.width, 90f), text, _bigStyle);
-            GUI.color = new Color(1f, 0.95f, 0.7f, 1f);
+            GUI.color = color;
             GUI.Label(new Rect(0f, y, Screen.width, 90f), text, _bigStyle);
+        }
+
+        /// <summary>한 판 클리어 화면. 걸린 시간과 이번 판의 기록을 보여 준다.</summary>
+        private void DrawClearScreen()
+        {
+            GUI.color = new Color(0f, 0f, 0f, 0.78f);
+            GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
+
+            float top = Screen.height * 0.18f;
+            GUI.color = new Color(0f, 0f, 0f, 0.7f);
+            GUI.Label(new Rect(3f, top + 3f, Screen.width, 90f), "시계탑을 넘었다", _bigStyle);
+            GUI.color = GoldColor;
+            GUI.Label(new Rect(0f, top, Screen.width, 90f), "시계탑을 넘었다", _bigStyle);
+            GUI.color = Color.white;
+            GUI.Label(new Rect(0f, top + 90f, Screen.width, 36f), "한 판 클리어!", _cardTitleStyle);
+
+            string best = _clearNewBest
+                ? "  (최고 기록!)"
+                : "  (최고 기록 " + FormatTime(MetaProgress.BestClearSeconds) + ")";
+            string[] lines =
+            {
+                "난이도 " + _difficulty.Title,
+                "걸린 시간 " + FormatTime(_clearSeconds) + best,
+                "처치 " + _kills + "    협공 " + _pincers,
+                "이번 판 " + MetaProgress.CurrencyName + " " + _runShards + "개 (클리어 보너스 " + _clearBonus + "개 포함)",
+                "지금까지 클리어 " + MetaProgress.Clears + "번",
+            };
+            float y = top + 150f;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                GUI.color = i == 1 && _clearNewBest ? GoldColor : Color.white;
+                GUI.Label(new Rect(0f, y + i * 30f, Screen.width, 28f), lines[i], _cardBodyStyle);
+            }
+
+            if (Time.unscaledTime >= _clearInputAt)
+            {
+                GUI.color = new Color(0.8f, 1f, 0.85f, 0.6f + 0.4f * Mathf.Sin(Time.unscaledTime * 4f));
+                GUI.Label(new Rect(0f, y + lines.Length * 30f + 30f, Screen.width, 28f), "E 또는 Space: 처음 거점으로", _cardBodyStyle);
+            }
+            GUI.color = Color.white;
         }
 
         private void DrawWorldLabel(Vector2 worldPosition, string text, Color color, float width)

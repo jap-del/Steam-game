@@ -33,9 +33,13 @@ namespace SteamGame.Prototype
                 case "TwinMoon": return TwinMoon;
                 case "LightLord": return LightLord;
                 case "Seal": return Seal;
+                case "ClockKnight": return ClockKnight;
+                case "ClockMaster": return ClockMaster;
+                case "Gear": return Gear;
                 case "Stone": return Stone;
                 case "Cap": return Cap;
                 case "Glass": return Glass;
+                case "Spikes": return Spikes;
                 default: return null;
             }
         }
@@ -573,6 +577,108 @@ namespace SteamGame.Prototype
             "############",
         };
 
+        private static readonly string[] ClockKnight =
+        {
+            "..........######..........",
+            ".........#l....l#.........",
+            "..........######..........",
+            "...........#ll#...........",
+            "...........#ll#...........",
+            ".......############.......",
+            ".....##llllllllllll##.....",
+            "....#llmmmmmmmmmmmmll#....",
+            "...#lmmmmmmmmmmmmmmmml#...",
+            "...#lm##############ml#...",
+            "...#lm#yyyyyyyyyyyy#ml#...",
+            "...#lm##############ml#...",
+            "...#lmmmmmmmmmmmmmmmml#...",
+            "....#dmmmmmmmmmmmmmmd#....",
+            ".....#dddddddddddddd#.....",
+            "..#####dddddddddddd#####..",
+            ".#llll#mmmmmmmmmmmm#llll#.",
+            "#llmmml#mm######mm#lmmmll#",
+            "#lmmmml#m#oooooo#m#lmmmml#",
+            "#lmmmml#m#oo##oo#m#lmmmml#",
+            "#ldddml#m#oo##oo#m#lmdddl#",
+            ".#ddd#l#m#oooooo#m#l#ddd#.",
+            ".#mm#.#lmm######mml#.#mm#.",
+            ".#mm#.#lmmmmmmmmmml#.#mm#.",
+            ".#ll#.#lmmmmmmmmmml#.#ll#.",
+            ".####.#dddddddddddd#.####.",
+            "......#mmmmmmmmmmmm#......",
+            "......#mmmmmddmmmmm#......",
+            ".....#mmmd#....#dmmm#.....",
+            ".....#mmmd#....#dmmm#.....",
+            ".....#mmmd#....#dmmm#.....",
+            ".....#lmmd#....#dmml#.....",
+            "....##lddd#....#dddl##....",
+            "...#llmddd#....#dddmll#...",
+            "...########....########...",
+        };
+
+        private static readonly string[] ClockMaster =
+        {
+            ".............######.............",
+            "...........##yyyyyy##...........",
+            "..........#yyooooooyy#..........",
+            ".........#yoooo##ooooy#.........",
+            ".........#yoooo##ooooy#.........",
+            ".........#yoooo##ooooy#.........",
+            ".........#y#ooo##ooo#y#.........",
+            ".........#yoooo##ooooy#.........",
+            ".........#yooooooooooy#.........",
+            ".........#yooooooooooy#.........",
+            "..........#yyooooooyy#..........",
+            "...........##yyyyyy##...........",
+            ".............######.............",
+            "...........#dddddddd#...........",
+            "....######.#dddddddd#.######....",
+            "..##llllll##mmmmmmmm##llllll##..",
+            ".#llmmmmmml#mmmmmmmm#lmmmmmmll#.",
+            "#llm#yy#mml#mmmmmmmm#lmm#yy#mll#",
+            "#lmm#yy#mml#mmmmmmmm#lmm#yy#mml#",
+            "#lmmm##mmml#mmmmmmmm#lmmm##mmml#",
+            ".#mmmmmmml#mmmmmmmmmm#lmmmmmmm#.",
+            "..##ddddd#mmmmm##mmmmm#ddddd##..",
+            "...#lmmm#lmmmmm##mmmmml#mmml#...",
+            "...#lmmm#lmmmmm##mmmmml#mmml#...",
+            "...#lmmm#lmmmmm##mmmmml#mmml#...",
+            "...#lmm#lmmmmmm##mmmmmml#mml#...",
+            "...#ldd#lmmmm#yyyy#mmmml#ddl#...",
+            "...#dd#lmmmmm#yyyy#mmmmml#dd#...",
+            "....##.#lmmmm#yyyy#mmmml#.##....",
+            ".......#lmmmmm####mmmmml#.......",
+            "......#lmmmmmmmmmmmmmmmml#......",
+            "......#lmmmmmmmmmmmmmmmml#......",
+            ".....#lmmmmmmmdmmdmmmmmmml#.....",
+            ".....#lmmmmmmmdmmdmmmmmmml#.....",
+            "....#lmmmmmmmdmmmmdmmmmmmml#....",
+            "....#lmmmmmmdmmmmmmdmmmmmml#....",
+            "...#lmmmmmmmdmmmmmmdmmmmmmml#...",
+            "...#lmmmmmmdmmmmmmmmdmmmmmml#...",
+            "..#lmmmmmmmdmmmmmmmmdmmmmmmml#..",
+            "..#lddddddddddddddddddddddddl#..",
+            ".#lddddddddddddddddddddddddddl#.",
+            ".#dddddddddddddddddddddddddddd#.",
+            "################################",
+        };
+
+        private static readonly string[] Gear =
+        {
+            "....####....",
+            "..#.#ll#.#..",
+            ".#l#llll#l#.",
+            "..#llmmll#..",
+            "#llm#dd#mll#",
+            "#lmd#..#dml#",
+            "#lmd#..#dml#",
+            "#llm#dd#mll#",
+            "..#llmmll#..",
+            ".#l#llll#l#.",
+            "..#.#ll#.#..",
+            "....####....",
+        };
+
         private static readonly string[] Stone =
         {
             "llllllllllllllld",
@@ -611,6 +717,18 @@ namespace SteamGame.Prototype
             "mmlmmmmmmmmmmlmm",
             "mmmlmmmmmmmmmmmm",
             "dddddddddddddddd",
+        };
+
+        private static readonly string[] Spikes =
+        {
+            "...#.......#....",
+            "...l#......l#...",
+            "..#lm#....#lm#..",
+            "..#lm#....#lm#..",
+            ".#llmd#..#llmd#.",
+            ".#lmmd#..#lmmd#.",
+            "#llmmdd##llmmdd#",
+            "################",
         };
     }
 }

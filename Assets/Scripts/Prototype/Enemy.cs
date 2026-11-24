@@ -26,12 +26,16 @@ namespace SteamGame.Prototype
         TwinMoon = 9,
         /// <summary>2스테이지 보스 백광의 군주. 세 단계로 싸우고, 단계마다 풀어야 할 기믹이 있다.</summary>
         LightLord = 10,
+        /// <summary>3스테이지 중간 보스 태엽 기사. 플레이어 둘레에 시계 감옥을 세운다.</summary>
+        ClockKnight = 11,
+        /// <summary>3스테이지 보스이자 마지막 보스인 시계탑의 주인. 시계 감옥과 등 뒤만 뚫리는 시계 방패를 쓴다.</summary>
+        ClockMaster = 12,
     }
 
     /// <summary>
     /// 적. 모든 공격 전에 번쩍이는 예고 동작이 있어서 보고 피할 수 있다.
     /// 예고와 공격 중에는 맞아도 밀려나지 않으므로, 계속 때리기만 해서는 막을 수 없다.
-    /// 보스의 기믹(보호막, 쌍둥이, 갑옷, 표식, 심판)은 EnemyRaid.cs에 있다.
+    /// 보스의 기믹(보호막, 쌍둥이, 갑옷, 표식, 심판)은 EnemyRaid.cs에, 3스테이지 보스의 기믹(시계 감옥, 시계 방패)은 EnemyClock.cs에 있다.
     /// </summary>
     public sealed partial class Enemy : MonoBehaviour
     {
@@ -104,6 +108,10 @@ namespace SteamGame.Prototype
             Mark,
             /// <summary>긴 예고 뒤 방 전체에 빛을 내린다. 분신의 그림자 속만 안전하다.</summary>
             Judgment,
+            /// <summary>플레이어 둘레에 시계 감옥을 세운다. 시간이 다 되면 감옥 안을 벤다.</summary>
+            Cage,
+            /// <summary>발밑에서 양쪽으로 톱니바퀴를 굴린다.</summary>
+            Gears,
         }
 
         private static readonly Color WarningColor = new Color(1f, 0.95f, 0.3f, 1f);
@@ -144,9 +152,9 @@ namespace SteamGame.Prototype
 
         public EnemyKind Kind { get; private set; }
         public Collider2D Collider => _collider;
-        public bool IsBoss => Kind == EnemyKind.MidBoss || Kind == EnemyKind.Boss || Kind == EnemyKind.TwinSun || Kind == EnemyKind.TwinMoon || Kind == EnemyKind.LightLord;
+        public bool IsBoss => Kind == EnemyKind.MidBoss || Kind == EnemyKind.Boss || Kind == EnemyKind.TwinSun || Kind == EnemyKind.TwinMoon || Kind == EnemyKind.LightLord || Kind == EnemyKind.ClockKnight || Kind == EnemyKind.ClockMaster;
         /// <summary>스테이지 끝의 보스인지. 중간 보스가 아니다.</summary>
-        public bool IsFinalBoss => Kind == EnemyKind.Boss || Kind == EnemyKind.LightLord;
+        public bool IsFinalBoss => Kind == EnemyKind.Boss || Kind == EnemyKind.LightLord || Kind == EnemyKind.ClockMaster;
         public float HealthRatio => Mathf.Clamp01(_health / MaxHealth);
         /// <summary>몸의 기본 색. 조각이 튈 때 이 색을 쓴다.</summary>
         public Color BaseColor => _baseColor;
@@ -163,6 +171,8 @@ namespace SteamGame.Prototype
                     case EnemyKind.TwinSun:
                     case EnemyKind.TwinMoon: return 20;
                     case EnemyKind.LightLord: return 80;
+                    case EnemyKind.ClockKnight: return 40;
+                    case EnemyKind.ClockMaster: return 100;
                     case EnemyKind.Dummy: return 0;
                     default: return 5;
                 }
@@ -183,6 +193,8 @@ namespace SteamGame.Prototype
                 case EnemyKind.TwinSun: return new Vector2(1.4f, 2f);
                 case EnemyKind.TwinMoon: return new Vector2(1.3f, 1.9f);
                 case EnemyKind.LightLord: return new Vector2(2.2f, 3f);
+                case EnemyKind.ClockKnight: return new Vector2(1.6f, 2.2f);
+                case EnemyKind.ClockMaster: return new Vector2(2.4f, 3.2f);
                 default: return new Vector2(0.9f, 1.2f);
             }
         }
@@ -201,6 +213,8 @@ namespace SteamGame.Prototype
                 case EnemyKind.TwinSun: return new Color(0.95f, 0.7f, 0.25f, 1f);
                 case EnemyKind.TwinMoon: return new Color(0.55f, 0.5f, 0.95f, 1f);
                 case EnemyKind.LightLord: return new Color(0.9f, 0.8f, 0.5f, 1f);
+                case EnemyKind.ClockKnight: return new Color(0.55f, 0.6f, 0.68f, 1f);
+                case EnemyKind.ClockMaster: return new Color(0.62f, 0.5f, 0.36f, 1f);
                 default: return new Color(0.85f, 0.3f, 0.35f, 1f);
             }
         }
@@ -248,8 +262,11 @@ namespace SteamGame.Prototype
             BuildRaid();
         }
 
-        /// <summary>방패병이 지금 그쪽을 막고 있는지. 공격 뒤 빈틈에는 방패를 내린다.</summary>
-        private bool IsGuarding => Kind == EnemyKind.Shield && _state != State.Recover;
+        /// <summary>
+        /// 방패병이 지금 그쪽을 막고 있는지. 공격 뒤 빈틈에는 방패를 내린다.
+        /// 시계 방패를 든 시계탑의 주인은 빈틈에도 막고, 무너졌을 때만 내린다.
+        /// </summary>
+        private bool IsGuarding => (Kind == EnemyKind.Shield && _state != State.Recover) || IsClockGuarding;
 
         private void Update()
         {
@@ -659,9 +676,10 @@ namespace SteamGame.Prototype
                     return 0f;
 
                 case State.Chase:
-                    _facing = toPlayer.x >= 0f ? 1 : -1;
+                    // 시계 방패를 든 시계탑의 주인은 천천히 돌아선다. 돌아서는 동안에는 걷지도 공격하지도 않는다.
+                    bool facingPlayer = TurnBossToward(toPlayer);
                     _cooldown -= Time.fixedDeltaTime;
-                    if (_cooldown <= 0f)
+                    if (_cooldown <= 0f && facingPlayer)
                     {
                         _pattern = NextPattern(toPlayer);
                         Enter(State.Windup, WindupFor(_pattern));
@@ -669,7 +687,7 @@ namespace SteamGame.Prototype
                         OnPatternWindup(_pattern);
                         return 0f;
                     }
-                    return ChaseSpeed(toPlayer);
+                    return facingPlayer ? ChaseSpeed(toPlayer) : 0f;
 
                 case State.Windup:
                     _stateTimer -= Time.fixedDeltaTime;
@@ -697,6 +715,15 @@ namespace SteamGame.Prototype
                             Judge();
                             Enter(State.Recover, 1.4f);
                             return 0f;
+                        case Pattern.Cage:
+                            // 감옥이 서 있는 동안 보스는 제자리에서 바늘이 돌아가는 것을 지켜본다.
+                            if (SpawnCage()) Enter(State.Attack, CageTime);
+                            else Enter(State.Recover, 0.3f);
+                            return 0f;
+                        case Pattern.Gears:
+                            StartGears();
+                            Enter(State.Recover, enraged ? 0.6f : 0.8f);
+                            return 0f;
                     }
                     if (_pattern == Pattern.Slam)
                     {
@@ -716,6 +743,7 @@ namespace SteamGame.Prototype
                     return 0f;
 
                 case State.Attack:
+                    if (_pattern == Pattern.Cage) return TickCage();
                     if (_pattern == Pattern.Slam)
                     {
                         _airTime += Time.fixedDeltaTime;
@@ -791,6 +819,8 @@ namespace SteamGame.Prototype
                 case Pattern.Pillars: return "빛기둥!";
                 case Pattern.Mark: return "표식!";
                 case Pattern.Judgment: return "심판!";
+                case Pattern.Cage: return "시계 감옥!";
+                case Pattern.Gears: return "톱니바퀴!";
                 default: return "돌진!";
             }
         }
@@ -823,7 +853,7 @@ namespace SteamGame.Prototype
             }
 
             Vector2 feet = _body.position + new Vector2(0f, -_size.y * 0.5f + 0.35f);
-            if (Kind == EnemyKind.Boss || Kind == EnemyKind.LightLord)
+            if (Kind == EnemyKind.Boss || Kind == EnemyKind.LightLord || Kind == EnemyKind.ClockMaster)
             {
                 _game.SpawnProjectile(feet + new Vector2(_size.x * 0.5f, 0f), new Vector2(WaveSpeed, 0f), 0.6f);
                 _game.SpawnProjectile(feet - new Vector2(_size.x * 0.5f, 0f), new Vector2(-WaveSpeed, 0f), 0.6f);
@@ -872,8 +902,11 @@ namespace SteamGame.Prototype
                 _flashColor = new Color(0.8f, 0.9f, 1f, 1f);
                 _flashTimer = 0.08f;
                 _game.Feel.BlockedHit((Vector2)transform.position + new Vector2(_facing * _size.x * 0.5f, 0f));
+                if (IsClockGuarding) OnClockGuardBlocked();
                 return;
             }
+            // 시계 방패를 든 보스의 등 뒤를 쳤다. 피해도 주고 방패에 금도 간다.
+            if (attackerSide != _facing) OnClockBackHit();
 
             int self = (int)source;
             int other = 1 - self;
@@ -929,7 +962,7 @@ namespace SteamGame.Prototype
                 }
             }
 
-            if ((Kind == EnemyKind.MidBoss || Kind == EnemyKind.Boss) && !_enrageAnnounced && HealthRatio < 0.5f)
+            if ((Kind == EnemyKind.MidBoss || Kind == EnemyKind.Boss || Kind == EnemyKind.ClockKnight) && !_enrageAnnounced && HealthRatio < 0.5f)
             {
                 // 체력이 절반 아래로 내려가면 분노한다. 몸이 붉어지고 빈틈이 짧아진다.
                 // 봉인의 수호자는 이때 보호막을 친다.
