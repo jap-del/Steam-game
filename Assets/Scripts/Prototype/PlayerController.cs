@@ -41,6 +41,8 @@ namespace SteamGame.Prototype
         private float _anchorTimer;
         private float _anchorCooldownTimer;
         private bool _shadowsAnchored;
+        /// <summary>보스가 분신을 그 자리에 묶어 둔 남은 시간. 묶인 분신은 고정된 분신처럼 움직이지 않는다.</summary>
+        private float _holdTimer;
         private PrototypeGame _game;
         private RunStats _stats;
         private Rigidbody2D _body;
@@ -73,6 +75,8 @@ namespace SteamGame.Prototype
         public float DashCooldownRemaining => Mathf.Max(0f, _dashCooldownTimer);
         public float ShadowFill => _shadows.Count > 0 ? _shadows[0].Recorder.Fill : 0f;
         public bool AreShadowsAnchored => _shadowsAnchored;
+        /// <summary>보고 있는 쪽. 오른쪽이 1, 왼쪽이 -1.</summary>
+        public int Facing => _facing;
         public float AnchorRemaining => Mathf.Max(0f, _anchorTimer);
         public float AnchorCooldownRemaining => Mathf.Max(0f, _anchorCooldownTimer);
 
@@ -118,6 +122,7 @@ namespace SteamGame.Prototype
             _shadows.Clear();
             _shadowsAnchored = false;
             _anchorTimer = 0f;
+            _holdTimer = 0f;
 
             for (int i = 0; i < _trailDots.Count; i++)
             {
@@ -191,6 +196,20 @@ namespace SteamGame.Prototype
             return false;
         }
 
+        /// <summary>
+        /// 분신을 seconds 동안 지금 자리에 묶어 둔다. 태엽 기사의 감옥이 쓴다.
+        /// 묶인 분신은 따라 하지 않고 그 자리에 있으며, 자리를 바꾸면 고정된 분신처럼 내가 있던 자리로 옮겨 간다.
+        /// </summary>
+        public void HoldShadows(float seconds)
+        {
+            if (_shadows.Count == 0 || !_shadows[0].Clone.IsActive) return;
+            _holdTimer = Mathf.Max(_holdTimer, seconds);
+            for (int i = 0; i < _shadows.Count; i++)
+            {
+                _shadows[i].Clone.SetAnchored(true);
+            }
+        }
+
         public void Heal(int amount)
         {
             _health = Mathf.Min(_stats.MaxHealth, _health + amount);
@@ -212,6 +231,18 @@ namespace SteamGame.Prototype
             {
                 _anchorTimer -= Time.deltaTime;
                 if (_anchorTimer <= 0f) ReleaseAnchor();
+            }
+
+            if (_holdTimer > 0f)
+            {
+                _holdTimer -= Time.deltaTime;
+                if (_holdTimer <= 0f && !_shadowsAnchored)
+                {
+                    for (int i = 0; i < _shadows.Count; i++)
+                    {
+                        _shadows[i].Clone.SetAnchored(false);
+                    }
+                }
             }
 
             if (_slashTimer > 0f)
@@ -323,7 +354,8 @@ namespace SteamGame.Prototype
             _anchorCooldownTimer = _stats.AnchorCooldown;
             for (int i = 0; i < _shadows.Count; i++)
             {
-                _shadows[i].Clone.SetAnchored(false);
+                // 보스가 묶어 둔 분신은 묶인 시간이 끝날 때까지 그대로 있다.
+                _shadows[i].Clone.SetAnchored(_holdTimer > 0f);
             }
         }
 
@@ -372,12 +404,13 @@ namespace SteamGame.Prototype
             transform.position = new Vector3(destination.x, destination.y, 0f);
             _body.linearVelocity = Vector2.zero;
             _dashTimer = 0f;
-            // 고정된 분신은 내가 있던 자리로 옮겨 가서 정말로 자리가 바뀐다.
-            if (_shadowsAnchored) _shadows[0].Clone.MoveTo(origin);
+            // 고정되거나 묶인 분신은 내가 있던 자리로 옮겨 가서 정말로 자리가 바뀐다.
+            if (_shadowsAnchored || _holdTimer > 0f) _shadows[0].Clone.MoveTo(origin);
             _game.ShowPopup(destination + Vector2.up * 1.2f, "자리 바꾸기", new Color(0.75f, 0.6f, 1f, 1f));
             Sfx.Play(Sound.Swap);
             _game.Feel.Sparks(origin, new Color(0.75f, 0.6f, 1f, 1f), 5, 4f);
             _game.Feel.Sparks(destination, new Color(0.75f, 0.6f, 1f, 1f), 5, 4f);
+            _game.OnPlayerSwapped();
 
             if (_stats.SwapShockwaveDamage > 0f)
             {
@@ -466,7 +499,7 @@ namespace SteamGame.Prototype
         /// <summary>첫 번째 분신이 앞으로 지나갈 길에 점을 찍는다. 고정 중이거나 분신이 아직 없으면 숨긴다.</summary>
         private void UpdateTrail()
         {
-            bool show = _shadows.Count > 0 && !_shadowsAnchored && _shadows[0].Clone.IsActive;
+            bool show = _shadows.Count > 0 && !_shadowsAnchored && _holdTimer <= 0f && _shadows[0].Clone.IsActive;
             ShadowRecorder recorder = show ? _shadows[0].Recorder : null;
             for (int i = 0; i < _trailDots.Count; i++)
             {

@@ -165,12 +165,12 @@ namespace SteamGame.Prototype
                 case RoomType.MidBoss:
                     if (stage >= 3) BuildKnightRoom(parent, layout);
                     else if (stage == 2) BuildTwinRoom(parent, layout);
-                    else BuildBossRoom(parent, layout, EnemyKind.MidBoss);
+                    else BuildGatekeeperRoom(parent, layout);
                     break;
                 case RoomType.Boss:
                     if (stage >= 3) BuildMasterRoom(parent, layout);
                     else if (stage == 2) BuildLightLordRoom(parent, layout);
-                    else BuildBossRoom(parent, layout, EnemyKind.Boss);
+                    else BuildGuardianRoom(parent, layout);
                     break;
                 case RoomType.Shop:
                     BuildShopRoom(layout);
@@ -242,24 +242,36 @@ namespace SteamGame.Prototype
             layout.Width = x + 10f;
         }
 
-        /// <summary>보스방: 구덩이 없는 넓은 평지와 발판 두 개.</summary>
-        private static void BuildBossRoom(Transform parent, StageLayout layout, EnemyKind boss)
+        /// <summary>1스테이지 중간 보스방: 성채의 문지기. 돌진이 벽까지 닿는 넓은 평지와, 돌진을 피할 발판 두 개.</summary>
+        private static void BuildGatekeeperRoom(Transform parent, StageLayout layout)
         {
             const float width = 40f;
             Ground(0f, width);
-            Platform(parent, 11f, 2.2f, 4f);
-            Platform(parent, 29f, 2.2f, 4f);
+            Platform(parent, 10f, 2.2f, 4f);
+            Platform(parent, 30f, 2.2f, 4f);
             Decorate(parent, 0f, width);
             layout.PlayerSpawn = new Vector2(4f, GroundTop);
-            layout.Enemies.Add(new EnemySpawn(boss, new Vector2(27f, GroundTop)));
+            layout.Enemies.Add(new EnemySpawn(EnemyKind.MidBoss, new Vector2(27f, GroundTop)));
             layout.ExitPosition = new Vector2(37f, GroundTop);
             layout.Width = width;
-            if (boss == EnemyKind.Boss)
-            {
-                // 봉인의 수호자가 보호막을 칠 때 봉인석이 놓이는 자리: 양쪽 발판 위.
-                layout.GimmickPoints.Add(new Vector2(11f, GroundTop + 2.2f));
-                layout.GimmickPoints.Add(new Vector2(29f, GroundTop + 2.2f));
-            }
+        }
+
+        /// <summary>1스테이지 보스방: 봉인의 수호자. 양쪽 발판과 가운데 바닥에 봉인석이 설 자리가 있다.</summary>
+        private static void BuildGuardianRoom(Transform parent, StageLayout layout)
+        {
+            const float width = 40f;
+            Ground(0f, width);
+            Platform(parent, 9f, 2.4f, 4f);
+            Platform(parent, 31f, 2.4f, 4f);
+            Decorate(parent, 0f, width);
+            layout.PlayerSpawn = new Vector2(4f, GroundTop);
+            layout.Enemies.Add(new EnemySpawn(EnemyKind.Boss, new Vector2(27f, GroundTop)));
+            layout.ExitPosition = new Vector2(37f, GroundTop);
+            layout.Width = width;
+            // 봉인석이 서는 자리: 왼쪽 발판 위, 가운데 바닥, 오른쪽 발판 위. 순서는 이 차례로 0, 1, 2번이다.
+            layout.GimmickPoints.Add(new Vector2(9f, GroundTop + 2.4f));
+            layout.GimmickPoints.Add(new Vector2(20f, GroundTop));
+            layout.GimmickPoints.Add(new Vector2(31f, GroundTop + 2.4f));
         }
 
         /// <summary>2스테이지 중간 보스방: 쌍둥이 수문장. 해는 가까이, 달은 멀리서 싸운다.</summary>
@@ -292,7 +304,7 @@ namespace SteamGame.Prototype
             layout.Width = width;
         }
 
-        /// <summary>3스테이지 중간 보스방: 태엽 기사. 평지와 양쪽 발판. 시계 감옥은 방 어디에나 선다.</summary>
+        /// <summary>3스테이지 중간 보스방: 태엽 기사. 평지와 양쪽 발판. 시계 감옥은 방 어디에나 서고, 진자는 방 끝에서 끝까지 지나간다.</summary>
         private static void BuildKnightRoom(Transform parent, StageLayout layout)
         {
             const float width = 40f;

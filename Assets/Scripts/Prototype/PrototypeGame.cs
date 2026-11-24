@@ -13,7 +13,7 @@ namespace SteamGame.Prototype
     /// 첫 거점에서는 난이도 문으로 들어가 판을 시작하고, 그 뒤의 거점에서는 그림자 조각으로 강화를 하나 산다.
     /// 적을 잡아 모은 그림자 조각은 죽어도 남고 상점에서도 쓴다.
     /// 중간 보스방과 보스방에 들어가면 짧은 등장 연출이 나온 뒤에 싸움이 시작된다.
-    /// 보스는 풀어야 할 기믹이 있다(EnemyRaid.cs, EnemyClock.cs). 기믹의 힌트는 화면 위쪽 세 번째 줄에 나온다.
+    /// 보스는 풀어야 할 기믹이 있다(EnemyCitadel.cs, EnemySanctum.cs, EnemyClock.cs). 기믹의 풀이나 힌트는 화면에 띄우지 않는다.
     /// 한 판은 세 스테이지다. 3-6의 시계탑의 주인을 쓰러뜨리고 문으로 나가면 클리어 화면이 나오고 첫 거점으로 돌아간다.
     /// </summary>
     public sealed class PrototypeGame : MonoBehaviour
@@ -107,8 +107,6 @@ namespace SteamGame.Prototype
         /// <summary>지금 방의 보스들. 쌍둥이 수문장은 둘이다.</summary>
         private readonly List<Enemy> _bosses = new List<Enemy>();
         /// <summary>보스 기믹의 힌트. 실패할수록 구체적으로 바뀐다.</summary>
-        private string _bossHint;
-        private int _twinRevives;
         private ShopItem _nearItem;
         private DifficultyLevel _difficulty;
         private int _nearDifficultyDoor = -1;
@@ -393,8 +391,6 @@ namespace SteamGame.Prototype
             _plates.Clear();
             _choices = null;
             _bosses.Clear();
-            _bossHint = null;
-            _twinRevives = 0;
             _nearItem = null;
             _nearDifficultyDoor = -1;
             _nearEventDoor = false;
@@ -537,17 +533,16 @@ namespace SteamGame.Prototype
             Sfx.StartBossMusic();
         }
 
-        /// <summary>보스가 다음 단계로 넘어가거나 기믹을 시작했다. 화면이 붉게 번쩍이고 음악이 빨라진다.</summary>
-        public void OnBossPhase(Enemy boss, string text, string hint)
+        /// <summary>보스가 다음 단계로 넘어가거나 기믹을 시작했다. 화면이 붉게 번쩍이고 음악이 빨라진다. 풀이는 알려 주지 않는다.</summary>
+        public void OnBossPhase(Enemy boss, string text)
         {
             _bossEnraged = true;
             Vector2 position = boss.transform.position;
             ShowPopup(position + Vector2.up * (Enemy.SizeOf(boss.Kind).y * 0.5f + 1.5f), text, new Color(1f, 0.85f, 0.4f, 1f));
             Feel.BossEnraged(position);
-            if (hint != null) _bossHint = hint;
         }
 
-        /// <summary>보스의 기믹을 풀었다. 힌트를 지우고 크게 알린다.</summary>
+        /// <summary>보스의 기믹을 풀었다. 크게 알린다.</summary>
         public void OnGimmickSolved(Enemy boss, string text)
         {
             Vector2 position = boss.transform.position;
@@ -556,26 +551,23 @@ namespace SteamGame.Prototype
             Feel.Flash(Color.white, 0.45f, 0.4f);
             Feel.Shake(0.35f, 0.3f);
             Feel.Sparks(position, GoldColor, 16, 8f);
-            _bossHint = null;
         }
 
-        /// <summary>기믹의 힌트를 바꾼다. 바뀌면 작게 소리를 내서 위쪽을 보게 한다.</summary>
-        public void SetBossHint(string hint)
+        /// <summary>플레이어가 분신과 자리를 바꿨다. 보스에게 알린다(백광의 군주의 표식이 옮겨 붙는다).</summary>
+        public void OnPlayerSwapped()
         {
-            if (hint == _bossHint) return;
-            _bossHint = hint;
-            if (hint != null) Sfx.Play(Sound.Chime, 0.5f);
+            for (int i = 0; i < _bosses.Count; i++)
+            {
+                if (_bosses[i] != null) _bosses[i].OnPlayerSwapped();
+            }
         }
 
-        /// <summary>쌍둥이 하나가 짝 덕분에 다시 일어났다. 실패할수록 힌트가 구체적으로 바뀐다.</summary>
+        /// <summary>쌍둥이 하나가 짝 덕분에 다시 일어났다.</summary>
         public void OnTwinRevived(Enemy twin)
         {
             ShowPopup((Vector2)twin.transform.position + Vector2.up * (Enemy.SizeOf(twin.Kind).y * 0.5f + 1.2f), "다시 일어났다!", new Color(1f, 0.4f, 0.35f, 1f));
             Sfx.Play(Sound.BossRage);
             Feel.Shake(0.3f, 0.3f);
-            _twinRevives++;
-            if (_twinRevives == 1) SetBossHint("쌍둥이: 짝이 살아 있으면 쓰러져도 다시 일어난다");
-            else if (_twinRevives == 2) SetBossHint("쌍둥이: 둘의 체력을 맞춰 깎다가, 쓰러진 하나가 일어나기 전에 다른 하나도 쓰러뜨리자");
         }
 
         /// <summary>쌍둥이 수문장 둘을 서로의 짝으로 묶는다.</summary>
@@ -589,15 +581,6 @@ namespace SteamGame.Prototype
                 else if (_bosses[i].Kind == EnemyKind.TwinMoon) moon = _bosses[i];
             }
             if (sun != null && moon != null) Enemy.LinkTwins(sun, moon);
-        }
-
-        /// <summary>보스의 체력이 절반 아래로 내려갔다. 이때부터 보스의 빈틈이 짧아진다.</summary>
-        public void OnBossEnraged(Enemy boss)
-        {
-            _bossEnraged = true;
-            Vector2 position = boss.transform.position;
-            ShowPopup(position + Vector2.up * (Enemy.SizeOf(boss.Kind).y * 0.5f + 1.5f), "분노!", new Color(1f, 0.3f, 0.25f, 1f));
-            Feel.BossEnraged(position);
         }
 
         private void DrawBossIntro()
@@ -1240,7 +1223,6 @@ namespace SteamGame.Prototype
             if (_bosses.Remove(enemy) && _bosses.Count == 0)
             {
                 _bossEnraged = false;
-                _bossHint = null;
             }
 
             if (enemy.IsBoss) Feel.BossDied(enemy.transform.position, enemy.BaseColor);
@@ -1271,6 +1253,21 @@ namespace SteamGame.Prototype
             PixelSprites.Dress(renderer, "Orb", new Vector2(size, size));
             renderer.gameObject.AddComponent<Projectile>().Launch(_player, velocity);
             Sfx.Play(Sound.Shoot, 0.7f);
+        }
+
+        /// <summary>
+        /// 보스가 쏘는 구슬. 소리는 내지 않으니 부르는 쪽에서 한 번만 낸다.
+        /// 돌려받은 탄에 되돌아오기(SetAcceleration)나 멈췄다 날아가기(HoldThenAim)를 정할 수 있다. 방이 없으면 null.
+        /// </summary>
+        public Projectile SpawnShot(Vector2 origin, Vector2 velocity, float size, Color color)
+        {
+            if (_root == null) return null;
+            var shotSize = new Vector2(size, size);
+            SpriteRenderer renderer = PrototypeArt.CreateBox("Shot", _root.transform, origin, shotSize, color, 15);
+            PixelSprites.Dress(renderer, "Orb", shotSize);
+            Projectile projectile = renderer.gameObject.AddComponent<Projectile>();
+            projectile.Launch(_player, velocity);
+            return projectile;
         }
 
         /// <summary>바닥을 따라 굴러오는 톱니바퀴. 탄처럼 벽에 닿으면 사라지고 대시로 지나갈 수 있다.</summary>
@@ -1315,9 +1312,6 @@ namespace SteamGame.Prototype
 
         private string GoalText()
         {
-            // 보스와 싸우는 동안에는 기믹의 힌트를 보여 준다.
-            if (_bosses.Count > 0 && _bossHint != null) return _bossHint;
-
             switch (_layout.Type)
             {
                 case RoomType.Hub:
@@ -1390,8 +1384,6 @@ namespace SteamGame.Prototype
                 GUI.color = Color.white;
                 GUI.Label(new Rect(16f, 12f, 1400f, 28f), RoomLabel() + (_layout.HasExit ? "    난이도 " + _difficulty.Title : "") + "    체력 " + _player.Health + " / " + Stats.MaxHealth + "    골드 " + _gold + "    " + MetaProgress.CurrencyName + " " + _shards, _hudStyle);
                 GUI.Label(new Rect(16f, 40f, 1000f, 28f), shadowState + "    " + dashState + "    처치 " + _kills + "    협공 " + _pincers, _hudStyle);
-                // 기믹의 힌트는 눈에 띄게 노랗게 쓴다.
-                GUI.color = _bosses.Count > 0 && _bossHint != null ? new Color(1f, 0.9f, 0.55f, 1f) : Color.white;
                 GUI.Label(new Rect(16f, 68f, 1400f, 28f), GoalText(), _hudStyle);
                 GUI.color = Color.white;
                 if (_layout.Type == RoomType.Hub && _lastRunSummary != null)
@@ -1441,11 +1433,12 @@ namespace SteamGame.Prototype
             GUI.color = Color.white;
         }
 
-        /// <summary>보스 기믹의 표시: 분신에 붙은 표식의 남은 초, 시계 감옥과 심판까지의 카운트다운.</summary>
+        /// <summary>보스 기믹의 표시: 표식의 남은 초, 시계 감옥과 심판과 역행까지의 카운트다운.</summary>
         private void DrawRaidLabels()
         {
             float judgment = 0f;
             float cage = 0f;
+            float reversal = 0f;
             for (int i = 0; i < _bosses.Count; i++)
             {
                 Enemy boss = _bosses[i];
@@ -1456,7 +1449,10 @@ namespace SteamGame.Prototype
                 }
                 judgment = Mathf.Max(judgment, boss.JudgmentRemaining);
                 cage = Mathf.Max(cage, boss.CageRemaining);
+                reversal = Mathf.Max(reversal, boss.ReversalRemaining);
             }
+
+            if (reversal > 0f) DrawBigText("역행 " + Mathf.CeilToInt(reversal), new Color(0.7f, 0.95f, 1f, 1f));
 
             if (cage > 0f)
             {
