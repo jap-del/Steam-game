@@ -151,6 +151,29 @@ namespace SteamGame.Prototype
         /// <summary>플레이어의 발 위치.</summary>
         public Vector2 Feet => Position + new Vector2(0f, -BodySize.y * 0.5f);
 
+        /// <summary>첫 번째 분신이 나타나 있으면 그 자리를 알려 준다. 보스의 표식이 분신에게 붙는다.</summary>
+        public bool TryGetShadow(out Vector2 position)
+        {
+            position = Vector2.zero;
+            if (_shadows.Count == 0 || _shadows[0].Clone == null || !_shadows[0].Clone.IsActive) return false;
+            position = _shadows[0].Clone.Position;
+            return true;
+        }
+
+        /// <summary>내가 분신과 겹쳐 서 있는지. 백광의 군주가 내리는 심판의 빛은 분신의 그림자 속까지는 닿지 않는다.</summary>
+        public bool IsInShadow()
+        {
+            for (int i = 0; i < _shadows.Count; i++)
+            {
+                ShadowClone clone = _shadows[i].Clone;
+                if (clone == null || !clone.IsActive) continue;
+
+                Vector2 offset = clone.Position - Position;
+                if (Mathf.Abs(offset.x) <= 0.75f && Mathf.Abs(offset.y) <= 0.9f) return true;
+            }
+            return false;
+        }
+
         /// <summary>나타나 있는 분신 중 하나라도 발이 그 범위 안에 있는지 확인한다. 퍼즐 발판에 쓴다.</summary>
         public bool IsAnyShadowStandingAt(Vector2 point, float halfWidth, float tolerance)
         {
@@ -376,11 +399,13 @@ namespace SteamGame.Prototype
                 return;
             }
 
-            bool grounded = IsGrounded();
+            bool onGlass;
+            bool grounded = IsGrounded(out onGlass);
             if (grounded)
             {
                 _coyoteTimer = CoyoteTime;
-                if (_dashTimer <= 0f && _knockbackTimer <= 0f) _lastSafePosition = _body.position;
+                // 유리 발판은 곧 깨지므로 돌아올 자리로 기억하지 않는다.
+                if (_dashTimer <= 0f && _knockbackTimer <= 0f && !onGlass) _lastSafePosition = _body.position;
             }
             else if (_coyoteTimer > 0f)
             {
@@ -456,18 +481,22 @@ namespace SteamGame.Prototype
         }
 
         /// <summary>발 아래쪽에 위아래 방향으로 맞닿은 면이 있으면 땅에 서 있는 것으로 본다.</summary>
-        private bool IsGrounded()
+        private bool IsGrounded(out bool onGlass)
         {
+            onGlass = false;
+            bool grounded = false;
             int count = _body.GetContacts(_contacts);
             float feetLine = _body.position.y - BodySize.y * 0.25f;
             for (int i = 0; i < count; i++)
             {
                 if (Mathf.Abs(_contacts[i].normal.y) > 0.5f && _contacts[i].point.y < feetLine)
                 {
-                    return true;
+                    grounded = true;
+                    Collider2D ground = _contacts[i].collider;
+                    if (ground != null && ground.GetComponent<GlassPlatform>() != null) onGlass = true;
                 }
             }
-            return false;
+            return grounded;
         }
 
         /// <summary>구덩이에 빠지면 체력을 1 잃고 마지막으로 서 있던 땅으로 돌아간다.</summary>
@@ -491,10 +520,14 @@ namespace SteamGame.Prototype
             _game.ShowPopup(destination + Vector2.up * 1.2f, "-1", new Color(1f, 0.4f, 0.4f, 1f));
         }
 
-        /// <summary>피해를 실제로 받았으면 true. 대시 중이거나 방금 맞아서 무적이면 false.</summary>
-        public bool TakeDamage(int amount, float sourceX)
+        /// <summary>
+        /// 피해를 실제로 받았으면 true. 대시 중이거나 방금 맞아서 무적이면 false.
+        /// unavoidable이면 대시나 무적 시간으로 피할 수 없다. 보스의 심판처럼 방 전체를 덮는 공격에 쓴다.
+        /// </summary>
+        public bool TakeDamage(int amount, float sourceX, bool unavoidable = false)
         {
-            if (_invulnerableTimer > 0f || _dashTimer > 0f || _health <= 0) return false;
+            if (_health <= 0) return false;
+            if (!unavoidable && (_invulnerableTimer > 0f || _dashTimer > 0f)) return false;
 
             _health -= amount;
             _invulnerableTimer = InvulnerableTime;

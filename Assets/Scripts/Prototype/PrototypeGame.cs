@@ -13,6 +13,7 @@ namespace SteamGame.Prototype
     /// 첫 거점에서는 난이도 문으로 들어가 판을 시작하고, 그 뒤의 거점에서는 그림자 조각으로 강화를 하나 산다.
     /// 적을 잡아 모은 그림자 조각은 죽어도 남고 상점에서도 쓴다.
     /// 중간 보스방과 보스방에 들어가면 짧은 등장 연출이 나온 뒤에 싸움이 시작된다.
+    /// 보스는 풀어야 할 기믹이 있다(EnemyRaid.cs). 기믹의 힌트는 화면 위쪽 세 번째 줄에 나온다.
     /// </summary>
     public sealed class PrototypeGame : MonoBehaviour
     {
@@ -30,6 +31,8 @@ namespace SteamGame.Prototype
         private const int ShardsPerEnemy = 1;
         private const int ShardsPerMidBoss = 5;
         private const int ShardsPerBoss = 10;
+        /// <summary>쌍둥이 수문장은 둘이라서 하나당 조금 적게 준다.</summary>
+        private const int ShardsPerTwin = 3;
         private const float ResetConfirmWindow = 2f;
         /// <summary>그림자 조각으로 내는 값: 거점의 제단에서 강화 하나, 상점의 마지막 물건.</summary>
         private const int AltarPrice = 12;
@@ -96,11 +99,17 @@ namespace SteamGame.Prototype
         private StageLayout _layout;
         private PlayerController _player;
         private SpriteRenderer _door;
-        private Enemy _boss;
+        /// <summary>지금 방의 보스들. 쌍둥이 수문장은 둘이다.</summary>
+        private readonly List<Enemy> _bosses = new List<Enemy>();
+        /// <summary>보스 기믹의 힌트. 실패할수록 구체적으로 바뀐다.</summary>
+        private string _bossHint;
+        private int _twinRevives;
         private ShopItem _nearItem;
         private DifficultyLevel _difficulty;
         private int _nearDifficultyDoor = -1;
         private int _pendingDifficulty = -1;
+        /// <summary>테스트용 건너뛰기. 0은 다음 스테이지 거점, 3은 중간 보스방, 6은 보스방. -1이면 없음.</summary>
+        private int _testJump = -1;
         private bool _nearEventDoor;
         private bool _nearAltar;
         private bool _altarUsed;
@@ -118,7 +127,10 @@ namespace SteamGame.Prototype
         private bool _introReturned;
         private float _introAge;
         private int _introEndFrame = -1;
-        private EnemyKind _introKind;
+        private string _introTitle;
+        private string _introSubtitle;
+        private Color _introColor;
+        private GUIStyle _bigStyle;
         private bool _bossEnraged;
         private float _bossBarFill;
         private GUIStyle _introTitleStyle;
@@ -144,6 +156,15 @@ namespace SteamGame.Prototype
 
         /// <summary>지금 방의 물건들이 달려 있는 곳. 방이 바뀌면 함께 사라진다.</summary>
         public Transform RoomRoot => _root != null ? _root.transform : null;
+
+        /// <summary>지금 켜져 있는 게임. 유리 발판이나 봉인석처럼 게임을 직접 받지 못한 물건이 쓴다.</summary>
+        public static PrototypeGame Current => _instance;
+
+        /// <summary>지금 방의 가로 길이.</summary>
+        public float RoomWidth => _layout != null ? _layout.Width : 0f;
+
+        /// <summary>지금 방의 보스 기믹 자리. 1스테이지 보스방의 봉인석 자리 같은 것이다.</summary>
+        public IList<Vector2> GimmickPoints => _layout != null ? _layout.GimmickPoints : null;
 
         /// <summary>
         /// 강화를 고르는 동안과 보스 등장 연출 동안에는 게임이 멈춘다.
@@ -207,7 +228,7 @@ namespace SteamGame.Prototype
                 UpdateBossIntro();
                 return;
             }
-            if (_boss != null && _bossBarFill < 1f)
+            if (_bosses.Count > 0 && _bossBarFill < 1f)
             {
                 _bossBarFill = Mathf.Min(1f, _bossBarFill + Time.unscaledDeltaTime / BossBarFillTime);
             }
@@ -217,6 +238,14 @@ namespace SteamGame.Prototype
                 int index = _pendingDifficulty;
                 _pendingDifficulty = -1;
                 EnterDifficultyDoor(index);
+                return;
+            }
+
+            if (_testJump >= 0)
+            {
+                int target = _testJump;
+                _testJump = -1;
+                TestJump(target);
                 return;
             }
 
@@ -252,7 +281,7 @@ namespace SteamGame.Prototype
 
             bool doorOpen = IsDoorOpen();
             _door.color = doorOpen ? DoorOpenColor : DoorLockedColor;
-            Feel.SetVignette(_bossEnraged ? RageVignetteColor : BossVignetteColor, _boss == null ? 0f : (_bossEnraged ? 0.75f : 0.55f));
+            Feel.SetVignette(_bossEnraged ? RageVignetteColor : BossVignetteColor, _bosses.Count == 0 ? 0f : (_bossEnraged ? 0.75f : 0.55f));
 
             Vector2 toDoor = _player.Position - (Vector2)_door.transform.position;
             if (doorOpen && Mathf.Abs(toDoor.x) < 1.1f && Mathf.Abs(toDoor.y) < 2f)
@@ -323,7 +352,7 @@ namespace SteamGame.Prototype
         /// <summary>화면에 보여 줄 방 이름. 거점은 "2스테이지 거점"처럼 적는다.</summary>
         private string RoomLabel()
         {
-            if (_layout.Type == RoomType.Hub) return _stage + "스테이지 " + RoomName(RoomType.Hub);
+            if (_layout.Type == RoomType.Hub) return _stage + "스테이지 " + RoomName(RoomType.Hub) + " (" + StageBuilder.AreaNameFor(_stage) + ")";
             return _stage + "-" + _room + " " + RoomName(_layout.Type);
         }
 
@@ -335,7 +364,9 @@ namespace SteamGame.Prototype
             _shopItems.Clear();
             _plates.Clear();
             _choices = null;
-            _boss = null;
+            _bosses.Clear();
+            _bossHint = null;
+            _twinRevives = 0;
             _nearItem = null;
             _nearDifficultyDoor = -1;
             _nearEventDoor = false;
@@ -388,7 +419,8 @@ namespace SteamGame.Prototype
             SetUpCamera(playerGo.transform);
             BuildHub(parent);
             ShowPopup(_player.Position + Vector2.up * 2.2f, RoomLabel(), Color.white);
-            if (_boss != null) BeginBossIntro();
+            LinkTwinBosses();
+            if (_bosses.Count > 0) BeginBossIntro();
         }
 
         // ---- 보스 등장 연출 ----
@@ -403,13 +435,18 @@ namespace SteamGame.Prototype
             _introTitleShown = false;
             _introReturned = false;
             _introAge = 0f;
-            _introKind = _boss.Kind;
+            Enemy boss = _bosses[0];
+            bool twins = _bosses.Count > 1;
+            _introTitle = twins ? "쌍둥이 수문장" : boss.BossName;
+            _introSubtitle = _stage + "-" + _room + (boss.IsFinalBoss ? " 보스" : " 중간 보스");
+            _introColor = boss.IsFinalBoss ? new Color(1f, 0.3f, 0.3f, 1f) : new Color(0.95f, 0.5f, 0.85f, 1f);
+            if (boss.Kind == EnemyKind.LightLord) _introColor = new Color(1f, 0.9f, 0.55f, 1f);
             Time.timeScale = 0f;
 
             if (_follow != null)
             {
                 _follow.Smoothing = IntroPanSmoothing;
-                _follow.Target = _boss.transform;
+                _follow.Target = boss.transform;
             }
             Feel.SetVignette(BossVignetteColor, 0.55f);
             Sfx.Play(Sound.BossIntro);
@@ -470,6 +507,60 @@ namespace SteamGame.Prototype
             Sfx.StartBossMusic();
         }
 
+        /// <summary>보스가 다음 단계로 넘어가거나 기믹을 시작했다. 화면이 붉게 번쩍이고 음악이 빨라진다.</summary>
+        public void OnBossPhase(Enemy boss, string text, string hint)
+        {
+            _bossEnraged = true;
+            Vector2 position = boss.transform.position;
+            ShowPopup(position + Vector2.up * (Enemy.SizeOf(boss.Kind).y * 0.5f + 1.5f), text, new Color(1f, 0.85f, 0.4f, 1f));
+            Feel.BossEnraged(position);
+            if (hint != null) _bossHint = hint;
+        }
+
+        /// <summary>보스의 기믹을 풀었다. 힌트를 지우고 크게 알린다.</summary>
+        public void OnGimmickSolved(Enemy boss, string text)
+        {
+            Vector2 position = boss.transform.position;
+            ShowPopup(position + Vector2.up * (Enemy.SizeOf(boss.Kind).y * 0.5f + 1.5f), text, GoldColor);
+            Sfx.Play(Sound.Solve);
+            Feel.Flash(Color.white, 0.45f, 0.4f);
+            Feel.Shake(0.35f, 0.3f);
+            Feel.Sparks(position, GoldColor, 16, 8f);
+            _bossHint = null;
+        }
+
+        /// <summary>기믹의 힌트를 바꾼다. 바뀌면 작게 소리를 내서 위쪽을 보게 한다.</summary>
+        public void SetBossHint(string hint)
+        {
+            if (hint == _bossHint) return;
+            _bossHint = hint;
+            if (hint != null) Sfx.Play(Sound.Chime, 0.5f);
+        }
+
+        /// <summary>쌍둥이 하나가 짝 덕분에 다시 일어났다. 실패할수록 힌트가 구체적으로 바뀐다.</summary>
+        public void OnTwinRevived(Enemy twin)
+        {
+            ShowPopup((Vector2)twin.transform.position + Vector2.up * (Enemy.SizeOf(twin.Kind).y * 0.5f + 1.2f), "다시 일어났다!", new Color(1f, 0.4f, 0.35f, 1f));
+            Sfx.Play(Sound.BossRage);
+            Feel.Shake(0.3f, 0.3f);
+            _twinRevives++;
+            if (_twinRevives == 1) SetBossHint("쌍둥이: 짝이 살아 있으면 쓰러져도 다시 일어난다");
+            else if (_twinRevives == 2) SetBossHint("쌍둥이: 둘의 체력을 맞춰 깎다가, 쓰러진 하나가 일어나기 전에 다른 하나도 쓰러뜨리자");
+        }
+
+        /// <summary>쌍둥이 수문장 둘을 서로의 짝으로 묶는다.</summary>
+        private void LinkTwinBosses()
+        {
+            Enemy sun = null;
+            Enemy moon = null;
+            for (int i = 0; i < _bosses.Count; i++)
+            {
+                if (_bosses[i].Kind == EnemyKind.TwinSun) sun = _bosses[i];
+                else if (_bosses[i].Kind == EnemyKind.TwinMoon) moon = _bosses[i];
+            }
+            if (sun != null && moon != null) Enemy.LinkTwins(sun, moon);
+        }
+
         /// <summary>보스의 체력이 절반 아래로 내려갔다. 이때부터 보스의 빈틈이 짧아진다.</summary>
         public void OnBossEnraged(Enemy boss)
         {
@@ -502,17 +593,16 @@ namespace SteamGame.Prototype
                 float sinceTitle = _introAge - IntroTitleAt;
                 float pop = 1f + 0.5f * (1f - Mathf.Clamp01(sinceTitle / 0.15f));
                 float alpha = Mathf.Clamp01((IntroDuration - _introAge) / 0.3f);
-                string title = _introKind == EnemyKind.Boss ? "보스" : "중간 보스";
                 float y = Screen.height * 0.3f;
 
                 _introTitleStyle.fontSize = Mathf.RoundToInt(72f * pop);
                 GUI.color = new Color(0f, 0f, 0f, 0.8f * alpha);
-                GUI.Label(new Rect(4f, y + 4f, Screen.width, 140f), title, _introTitleStyle);
-                GUI.color = _introKind == EnemyKind.Boss ? new Color(1f, 0.3f, 0.3f, alpha) : new Color(0.95f, 0.5f, 0.85f, alpha);
-                GUI.Label(new Rect(0f, y, Screen.width, 140f), title, _introTitleStyle);
+                GUI.Label(new Rect(4f, y + 4f, Screen.width, 140f), _introTitle, _introTitleStyle);
+                GUI.color = new Color(_introColor.r, _introColor.g, _introColor.b, alpha);
+                GUI.Label(new Rect(0f, y, Screen.width, 140f), _introTitle, _introTitleStyle);
 
                 GUI.color = new Color(1f, 1f, 1f, 0.85f * alpha);
-                GUI.Label(new Rect(0f, y + 130f, Screen.width, 30f), _stage + "-" + _room, _cardBodyStyle);
+                GUI.Label(new Rect(0f, y + 130f, Screen.width, 30f), _introSubtitle, _cardBodyStyle);
             }
 
             if (_introAge >= IntroSkipAfter)
@@ -533,7 +623,7 @@ namespace SteamGame.Prototype
                 Physics2D.IgnoreCollision(enemy.Collider, _enemies[j].Collider);
             }
             _enemies.Add(enemy);
-            if (enemy.IsBoss) _boss = enemy;
+            if (enemy.IsBoss) _bosses.Add(enemy);
         }
 
         /// <summary>전투방에서 기본 적의 일부를 방패병이나 폭탄병으로 바꾼다. 맨 첫 방은 기본 적만 나온다.</summary>
@@ -560,14 +650,22 @@ namespace SteamGame.Prototype
             }
         }
 
+        /// <summary>
+        /// 적의 체력(보통 난이도 기준). 스테이지가 오를수록 늘어난다.
+        /// 플레이어는 한 번에 10, 분신은 5, 협공은 두 배를 준다.
+        /// </summary>
         private float HealthFor(EnemyKind kind)
         {
             int extra = _stage - 1;
             switch (kind)
             {
                 case EnemyKind.Dummy: return 100f;
-                case EnemyKind.MidBoss: return 160f + 70f * extra;
-                case EnemyKind.Boss: return 260f + 120f * extra;
+                case EnemyKind.MidBoss: return 320f + 120f * extra;
+                case EnemyKind.Boss: return 520f + 200f * extra;
+                // 2스테이지부터 나오는 보스들. 3스테이지 이후에는 같은 보스가 더 단단해진다.
+                case EnemyKind.TwinSun:
+                case EnemyKind.TwinMoon: return 280f + 100f * Mathf.Max(0, extra - 1);
+                case EnemyKind.LightLord: return 1000f + 300f * Mathf.Max(0, extra - 1);
                 case EnemyKind.Shield: return 40f + 12f * extra;
                 case EnemyKind.Flyer: return 20f + 6f * extra;
                 default: return 30f + 10f * extra;
@@ -608,7 +706,7 @@ namespace SteamGame.Prototype
 
             _camera.orthographic = true;
             _camera.orthographicSize = 6.5f;
-            _camera.backgroundColor = new Color(0.09f, 0.1f, 0.14f, 1f);
+            _camera.backgroundColor = StageBuilder.BackgroundFor(_stage);
 
             var follow = _camera.GetComponent<CameraFollow>();
             if (follow == null) follow = _camera.gameObject.AddComponent<CameraFollow>();
@@ -854,6 +952,15 @@ namespace SteamGame.Prototype
             _nearEventDoor = _layout.HasEventDoor && IsNear(_layout.EventDoor);
             _nearAltar = _layout.HasAltar && IsNear(_layout.Altar);
 
+            // 테스트용 건너뛰기: 숫자 2는 다음 스테이지 거점, 3은 이 스테이지의 중간 보스방, 6은 보스방.
+            Keyboard testKeys = Keyboard.current;
+            if (testKeys != null)
+            {
+                if (testKeys.digit2Key.wasPressedThisFrame) _testJump = 0;
+                else if (testKeys.digit3Key.wasPressedThisFrame) _testJump = 3;
+                else if (testKeys.digit6Key.wasPressedThisFrame) _testJump = 6;
+            }
+
             // 테스트용: 첫 거점에서 Delete(맥에서는 delete 키)를 두 번 누르면 저장을 지운다.
             Keyboard keyboard = Keyboard.current;
             if (_layout.HasEventDoor && keyboard != null && (keyboard.deleteKey.wasPressedThisFrame || keyboard.backspaceKey.wasPressedThisFrame))
@@ -883,6 +990,23 @@ namespace SteamGame.Prototype
             // 첫 거점에서는 아직 강화가 없으므로 최대 체력을 기본값에서 다시 계산한다.
             Stats.MaxHealth = new RunStats().MaxHealth + _difficulty.MaxHealthBonus;
             _room = 1;
+            BuildRoom(Stats.MaxHealth);
+        }
+
+        /// <summary>테스트용으로 거점에서 바로 다른 방으로 간다. 보스 기믹을 여러 번 시험해 볼 때 쓴다.</summary>
+        private void TestJump(int target)
+        {
+            // 첫 거점에서 건너뛰면 난이도 문으로 들어간 것처럼 최대 체력을 맞춘다.
+            if (!_layout.HasExit) Stats.MaxHealth = new RunStats().MaxHealth + _difficulty.MaxHealthBonus;
+            if (target == 0)
+            {
+                _stage++;
+                _room = 0;
+            }
+            else
+            {
+                _room = target;
+            }
             BuildRoom(Stats.MaxHealth);
         }
 
@@ -1016,16 +1140,19 @@ namespace SteamGame.Prototype
             ShowPopup((Vector2)enemy.transform.position + Vector2.up * 1.6f, "+" + enemy.GoldValue + " 골드", GoldColor);
 
             // 그림자 조각은 죽어도 남는다. 바로 저장 값에 더해 둔다.
-            int baseShards = enemy.Kind == EnemyKind.Boss ? ShardsPerBoss : (enemy.Kind == EnemyKind.MidBoss ? ShardsPerMidBoss : ShardsPerEnemy);
+            int baseShards = ShardsPerEnemy;
+            if (enemy.IsFinalBoss) baseShards = ShardsPerBoss;
+            else if (enemy.Kind == EnemyKind.TwinSun || enemy.Kind == EnemyKind.TwinMoon) baseShards = ShardsPerTwin;
+            else if (enemy.IsBoss) baseShards = ShardsPerMidBoss;
             int shards = Mathf.CeilToInt(baseShards * _difficulty.ShardScale);
             _shards += shards;
             _runShards += shards;
             MetaProgress.Shards = _shards;
             ShowPopup((Vector2)enemy.transform.position + Vector2.up * 2.2f, "+" + shards + " " + MetaProgress.CurrencyName, ShardColor);
-            if (enemy == _boss)
+            if (_bosses.Remove(enemy) && _bosses.Count == 0)
             {
-                _boss = null;
                 _bossEnraged = false;
+                _bossHint = null;
             }
 
             if (enemy.IsBoss) Feel.BossDied(enemy.transform.position, enemy.BaseColor);
@@ -1088,12 +1215,15 @@ namespace SteamGame.Prototype
 
         private string GoalText()
         {
+            // 보스와 싸우는 동안에는 기믹의 힌트를 보여 준다.
+            if (_bosses.Count > 0 && _bossHint != null) return _bossHint;
+
             switch (_layout.Type)
             {
                 case RoomType.Hub:
                     return _layout.HasExit
-                        ? "강화의 제단 앞에서 E를 누르면 " + MetaProgress.CurrencyName + " " + AltarPrice + "개로 강화를 하나 고른다. 오른쪽 문으로 나가면 " + _stage + "-1 시작"
-                        : "난이도의 문 앞에서 E를 누르면 그 난이도로 1-1을 시작한다. (delete 두 번: 저장 지우기)";
+                        ? "강화의 제단 앞에서 E를 누르면 " + MetaProgress.CurrencyName + " " + AltarPrice + "개로 강화를 하나 고른다. 오른쪽 문으로 나가면 " + _stage + "-1 시작. (테스트: 숫자 2 다음 스테이지, 3 중간 보스, 6 보스)"
+                        : "난이도의 문 앞에서 E를 누르면 그 난이도로 1-1을 시작한다. (delete 두 번: 저장 지우기. 테스트: 숫자 2 다음 스테이지, 3 중간 보스, 6 보스)";
                 case RoomType.Shop:
                     return "물건 앞에서 E로 구매. 오른쪽 문으로 나간다";
                 case RoomType.Puzzle:
@@ -1129,6 +1259,12 @@ namespace SteamGame.Prototype
                 _cardBodyStyle.wordWrap = true;
                 _cardBodyStyle.alignment = TextAnchor.UpperCenter;
                 _cardBodyStyle.normal.textColor = Color.white;
+
+                _bigStyle = new GUIStyle(GUI.skin.label);
+                _bigStyle.fontSize = 56;
+                _bigStyle.fontStyle = FontStyle.Bold;
+                _bigStyle.alignment = TextAnchor.MiddleCenter;
+                _bigStyle.normal.textColor = Color.white;
             }
 
             // 보스전의 어두운 화면 가장자리. 글자보다 먼저 그려서 글자를 가리지 않게 한다.
@@ -1154,7 +1290,10 @@ namespace SteamGame.Prototype
                 GUI.color = Color.white;
                 GUI.Label(new Rect(16f, 12f, 1400f, 28f), RoomLabel() + (_layout.HasExit ? "    난이도 " + _difficulty.Title : "") + "    체력 " + _player.Health + " / " + Stats.MaxHealth + "    골드 " + _gold + "    " + MetaProgress.CurrencyName + " " + _shards, _hudStyle);
                 GUI.Label(new Rect(16f, 40f, 1000f, 28f), shadowState + "    " + dashState + "    처치 " + _kills + "    협공 " + _pincers, _hudStyle);
+                // 기믹의 힌트는 눈에 띄게 노랗게 쓴다.
+                GUI.color = _bosses.Count > 0 && _bossHint != null ? new Color(1f, 0.9f, 0.55f, 1f) : Color.white;
                 GUI.Label(new Rect(16f, 68f, 1400f, 28f), GoalText(), _hudStyle);
+                GUI.color = Color.white;
                 if (_layout.Type == RoomType.Hub && _lastRunSummary != null)
                 {
                     GUI.color = ShardColor;
@@ -1192,7 +1331,37 @@ namespace SteamGame.Prototype
                 color.a = 1f - t * t;
                 DrawWorldLabel(new Vector2(popup.Position.x, popup.Position.y + t * 0.8f), popup.Text, color, 600f);
             }
+            DrawRaidLabels();
             GUI.color = Color.white;
+        }
+
+        /// <summary>보스 기믹의 표시: 분신에 붙은 표식의 남은 초, 심판까지의 카운트다운.</summary>
+        private void DrawRaidLabels()
+        {
+            float judgment = 0f;
+            for (int i = 0; i < _bosses.Count; i++)
+            {
+                Enemy boss = _bosses[i];
+                if (boss == null) continue;
+                if (boss.HasMark)
+                {
+                    DrawWorldLabel(boss.MarkPosition + Vector2.up * 1.3f, Mathf.CeilToInt(boss.MarkRemaining).ToString(), new Color(1f, 0.92f, 0.6f, 1f), 100f);
+                }
+                judgment = Mathf.Max(judgment, boss.JudgmentRemaining);
+            }
+            if (judgment <= 0f) return;
+
+            // 심판이 다가올수록 화면이 하얗게 차오른다.
+            float t = 1f - Mathf.Clamp01(judgment / Enemy.JudgmentCastTime);
+            GUI.color = new Color(1f, 0.97f, 0.85f, 0.35f * t * t);
+            GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
+
+            string text = "심판 " + Mathf.CeilToInt(judgment);
+            float y = Screen.height * 0.2f;
+            GUI.color = new Color(0f, 0f, 0f, 0.7f);
+            GUI.Label(new Rect(3f, y + 3f, Screen.width, 90f), text, _bigStyle);
+            GUI.color = new Color(1f, 0.95f, 0.7f, 1f);
+            GUI.Label(new Rect(0f, y, Screen.width, 90f), text, _bigStyle);
         }
 
         private void DrawWorldLabel(Vector2 worldPosition, string text, Color color, float width)
@@ -1202,34 +1371,61 @@ namespace SteamGame.Prototype
             GUI.Label(new Rect(screen.x - width * 0.5f, Screen.height - screen.y - 15f, width, 30f), text, _popupStyle);
         }
 
+        /// <summary>보스 체력 막대. 쌍둥이처럼 보스가 둘이면 막대를 나란히 그린다.</summary>
         private void DrawBossBar()
         {
-            if (_boss == null) return;
+            if (_bosses.Count == 0) return;
 
-            float width = Mathf.Min(600f, Screen.width - 80f);
-            float left = (Screen.width - width) * 0.5f;
+            const float gap = 24f;
             const float top = 104f;
+            int count = _bosses.Count;
+            float total = Mathf.Min(600f, Screen.width - 80f);
+            float width = (total - gap * (count - 1)) / count;
+            float left = (Screen.width - total) * 0.5f;
+            for (int i = 0; i < count; i++)
+            {
+                if (_bosses[i] != null) DrawOneBossBar(_bosses[i], left + i * (width + gap), top, width);
+            }
+        }
 
+        private void DrawOneBossBar(Enemy boss, float left, float top, float width)
+        {
             GUI.color = new Color(0f, 0f, 0f, 0.7f);
             GUI.DrawTexture(new Rect(left - 3f, top - 3f, width + 6f, 22f), Texture2D.whiteTexture);
 
-            // 등장 연출이 끝나면 체력 막대가 차오른다. 분노하면 막대가 밝게 깜빡인다.
+            // 등장 연출이 끝나면 체력 막대가 차오른다. 분노하면 붉게, 기믹을 풀어 무너지면 하얗게 깜빡인다.
             Color barColor = new Color(0.85f, 0.2f, 0.25f, 1f);
-            if (_bossEnraged)
+            if (boss.IsDowned)
+            {
+                barColor = new Color(0.45f, 0.45f, 0.5f, 1f);
+            }
+            else if (boss.IsStaggered)
+            {
+                float flash = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 14f);
+                barColor = Color.Lerp(new Color(1f, 0.85f, 0.3f, 1f), Color.white, flash);
+            }
+            else if (_bossEnraged)
             {
                 float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 9f);
                 barColor = Color.Lerp(new Color(0.9f, 0.15f, 0.1f, 1f), new Color(1f, 0.6f, 0.2f, 1f), pulse);
             }
             GUI.color = barColor;
-            GUI.DrawTexture(new Rect(left, top, width * _boss.HealthRatio * _bossBarFill, 16f), Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(left, top, width * boss.HealthRatio * _bossBarFill, 16f), Texture2D.whiteTexture);
 
-            // 절반 표시: 여기 아래로 내려가면 분노한다.
-            GUI.color = new Color(1f, 1f, 1f, 0.6f);
-            GUI.DrawTexture(new Rect(left + width * 0.5f - 1f, top - 3f, 2f, 22f), Texture2D.whiteTexture);
+            // 단계의 경계: 여기 아래로 내려가면 보스가 달라진다.
+            float[] marks = boss.PhaseMarks;
+            if (marks != null)
+            {
+                GUI.color = new Color(1f, 1f, 1f, 0.6f);
+                for (int i = 0; i < marks.Length; i++)
+                {
+                    GUI.DrawTexture(new Rect(left + width * marks[i] - 1f, top - 3f, 2f, 22f), Texture2D.whiteTexture);
+                }
+            }
 
-            GUI.color = _bossEnraged ? new Color(1f, 0.45f, 0.35f, 1f) : Color.white;
-            string label = _boss.Kind == EnemyKind.Boss ? "보스" : "중간 보스";
-            GUI.Label(new Rect(left, top + 20f, width, 28f), _bossEnraged ? label + " (분노)" : label, _cardBodyStyle);
+            string status = boss.BarStatus;
+            GUI.color = status != null ? new Color(1f, 0.75f, 0.5f, 1f) : Color.white;
+            GUI.Label(new Rect(left, top + 20f, width, 28f), status != null ? boss.BossName + " (" + status + ")" : boss.BossName, _cardBodyStyle);
             GUI.color = Color.white;
         }
 

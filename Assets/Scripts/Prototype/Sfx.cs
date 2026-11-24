@@ -26,6 +26,11 @@ namespace SteamGame.Prototype
         BossRage,
         BossSlam,
         BossDie,
+        Shatter,
+        Chime,
+        Beam,
+        Judgment,
+        Mark,
     }
 
     /// <summary>
@@ -191,6 +196,16 @@ namespace SteamGame.Prototype
                     return Build(name, 0.5f, new[] { new Tone(90f, 30f, 0.9f, 7f) }, 0.6f, 9f, 0.12f, false);
                 case Sound.BossDie:
                     return Build(name, 1.5f, new[] { new Tone(220f, 28f, 0.7f, 2f), new Tone(110f, 30f, 0.2f, 2.5f, 0f, true) }, 0.6f, 3f, 0.1f, false);
+                case Sound.Shatter:
+                    return Build(name, 0.35f, new[] { new Tone(2600f, 1800f, 0.15f, 18f), new Tone(3400f, 2900f, 0.1f, 22f, 0.03f) }, 0.45f, 16f, 1f, false);
+                case Sound.Chime:
+                    return Build(name, 0.6f, new[] { new Tone(1318f, 1318f, 0.25f, 5f), new Tone(1976f, 1976f, 0.12f, 6f) }, 0f, 0f, 1f, false);
+                case Sound.Beam:
+                    return Build(name, 0.45f, new[] { new Tone(220f, 880f, 0.2f, 4f, 0f, true), new Tone(440f, 1760f, 0.12f, 5f) }, 0.35f, 0f, 0.5f, true);
+                case Sound.Judgment:
+                    return Build(name, 1.4f, new[] { new Tone(110f, 55f, 0.6f, 1.5f), new Tone(880f, 440f, 0.25f, 2f), new Tone(1320f, 660f, 0.15f, 2.5f) }, 0.6f, 2.5f, 0.3f, false);
+                case Sound.Mark:
+                    return Build(name, 0.5f, new[] { new Tone(660f, 990f, 0.25f, 6f), new Tone(990f, 1320f, 0.18f, 6f, 0.12f) }, 0f, 0f, 1f, false);
                 default:
                     return null;
             }

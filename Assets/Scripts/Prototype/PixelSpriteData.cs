@@ -29,8 +29,13 @@ namespace SteamGame.Prototype
                 case "Door": return Door;
                 case "Slash": return Slash;
                 case "Orb": return Orb;
+                case "TwinSun": return TwinSun;
+                case "TwinMoon": return TwinMoon;
+                case "LightLord": return LightLord;
+                case "Seal": return Seal;
                 case "Stone": return Stone;
                 case "Cap": return Cap;
+                case "Glass": return Glass;
                 default: return null;
             }
         }
@@ -438,6 +443,136 @@ namespace SteamGame.Prototype
             "..mmmm..",
         };
 
+        private static readonly string[] TwinSun =
+        {
+            "........#llll#........",
+            ".......#lmllml#.......",
+            "......##lmllml##......",
+            "....###mmmmmmmm###....",
+            "...#llmmmmmmmmmmll#...",
+            "..#lmmmmmmmmmmmmmml#..",
+            "..#lm############ml#..",
+            "..#lm#yyyyyyyyyy#ml#..",
+            "..#lm############ml#..",
+            "..#lmmmmmmmmmmmmmml#..",
+            "...#dmmmmmmmmmmmmd#...",
+            "....#ddmmmmmmmmdd#....",
+            "..####dddddddddd####..",
+            ".#llll#mmmmmmmm#llll#.",
+            "#lmmmml#llllll#lmmmml#",
+            "#lmmmml#lmmmml#lmmmml#",
+            "#ldddml#lmmmml#lmdddl#",
+            ".#ddd#l#lmmmml#l#ddd#.",
+            ".#mm#.#lmmmmmml#.#mm#.",
+            ".#mm#.#ldmmmmdl#.#mm#.",
+            ".#mm#.#dddddddd#.#mm#.",
+            ".#ll#.##########.#ll#.",
+            ".####.#mmmmmmmm#.####.",
+            "......#mmmddmmm#......",
+            ".....#mmmd..dmmm#.....",
+            ".....#mmd#..#dmm#.....",
+            ".....#mmd#..#dmm#.....",
+            ".....#mdd#..#ddm#.....",
+            "....##ddd#..#ddd##....",
+            "....######..######....",
+        };
+
+        private static readonly string[] TwinMoon =
+        {
+            "........#llll#........",
+            ".......#lmllml#.......",
+            "......##lmllml##......",
+            "....###mmmmmmmm###....",
+            "...#llmmmmmmmmmmll#...",
+            "..#lmmmmmmmmmmmmmml#..",
+            "..#lm############ml#..",
+            "..#lm#cccccccccc#ml#..",
+            "..#lm############ml#..",
+            "..#lmmmmmmmmmmmmmml#..",
+            "...#dmmmmmmmmmmmmd#...",
+            "....#ddmmmmmmmmdd#....",
+            "..####dddddddddd####..",
+            ".#llll#mmmmmmmm#llll#.",
+            "#lmmmml#llllll#lmmmml#",
+            "#lmmmml#lmmmml#lmmmml#",
+            "#ldddml#lmmmml#lmdddl#",
+            ".#ddd#l#lmmmml#l#ddd#.",
+            ".#mm#.#lmmmmmml#.#mm#.",
+            ".#mm#.#ldmmmmdl#.#mm#.",
+            ".#mm#.#dddddddd#.#mm#.",
+            ".#ll#.##########.#ll#.",
+            ".####.#mmmmmmmm#.####.",
+            "......#mmmddmmm#......",
+            ".....#mmmd..dmmm#.....",
+            ".....#mmd#..#dmm#.....",
+            ".....#mmd#..#dmm#.....",
+            ".....#mdd#..#ddm#.....",
+            "....##ddd#..#ddd##....",
+            "....######..######....",
+        };
+
+        private static readonly string[] LightLord =
+        {
+            "........yyyyyyyyyy........",
+            "......yy..........yy......",
+            ".....y..............y.....",
+            ".....y...########...y.....",
+            ".....y..#llllllll#..y.....",
+            "......##lmmmmmmmml##......",
+            "......#lm########ml#......",
+            "......#lm#o####o#ml#......",
+            "......#lm########ml#......",
+            ".......#mmmmmmmmmm#.......",
+            "........#dddddddd#........",
+            "....#####dddddddd#####....",
+            "..##llllll#mmmm#llllll##..",
+            ".#lllmmmmml#mm#lmmmmmlll#.",
+            "#llmmmmmmmml##lmmmmmmmmll#",
+            "#lmmm#mmmmmlyylmmmmm#mmml#",
+            "#lmm#l#mmmmlyylmmmm#l#mml#",
+            "#lmm#l#mmmml##lmmmm#l#mml#",
+            "#lmm#l#mmmmlmmlmmmm#l#mml#",
+            "#ldd#l#mmmmlmmlmmmm#l#ddl#",
+            "#ld##l#mmmmlmmlmmmm#l##dl#",
+            ".##.#l#mmmmlmmlmmmm#l#.##.",
+            "....#l#dmmmlmmlmmmd#l#....",
+            "....#l#dmmmlmmlmmmd#l#....",
+            "...#lm#dmmmlmmlmmmd#ml#...",
+            "...#lm#ddmmlmmlmmdd#ml#...",
+            "...#lm#ddmmlmmlmmdd#ml#...",
+            "..#lmm#ddmmlmmlmmdd#mml#..",
+            "..#lmm#dddmlmmlmddd#mml#..",
+            "..#lmm#dddmlmmlmddd#mml#..",
+            ".#lmmm#dddmlmmlmddd#mmml#.",
+            ".#lmmm#ddddlmmldddd#mmml#.",
+            "#lmmmd#ddddlmmldddd#dmmml#",
+            "#lmmdd#ddddmmmmdddd#ddmml#",
+            "#ddddd######dd######ddddd#",
+            "##########################",
+        };
+
+        private static readonly string[] Seal =
+        {
+            ".....##.....",
+            "....#ll#....",
+            "...#lmml#...",
+            "..#lmmmml#..",
+            ".#lmmmmmml#.",
+            ".#lmddddml#.",
+            ".#lmdlldml#.",
+            ".#lmddddml#.",
+            ".#lmmmmmml#.",
+            ".#lmmddmml#.",
+            ".#lmdlldml#.",
+            ".#lmmddmml#.",
+            ".#ldmmmmdl#.",
+            ".#ldmmmmdl#.",
+            "..#ddmmdd#..",
+            "..#dddddd#..",
+            ".##########.",
+            "############",
+        };
+
         private static readonly string[] Stone =
         {
             "llllllllllllllld",
@@ -464,6 +599,18 @@ namespace SteamGame.Prototype
             "lmllllmlllllmlll",
             "mmlmmmmmlmmmmmml",
             "m.mm.mmm.mm.mmm.",
+        };
+
+        private static readonly string[] Glass =
+        {
+            "llllllllllllllll",
+            "lmmmmmmmlmmmmmmm",
+            "mmmmmmmlmmmmmmmm",
+            "mmmmmmlmmmmmmmml",
+            "mmmmmmmmmmmmmmlm",
+            "mmlmmmmmmmmmmlmm",
+            "mmmlmmmmmmmmmmmm",
+            "dddddddddddddddd",
         };
     }
 }
