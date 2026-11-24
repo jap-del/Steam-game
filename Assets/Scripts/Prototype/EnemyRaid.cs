@@ -72,10 +72,7 @@ namespace SteamGame.Prototype
 
         /// <summary>보스 발이 플레이어 발보다 이만큼 높이 있으면 발판을 뚫고 내려온다.</summary>
         private const float DropHeight = 1.2f;
-        /// <summary>발판을 뚫고 내려오는 데 기다려 주는 가장 긴 시간(초). 지나면 다시 밟을 수 있다.</summary>
-        private const float DropMaxTime = 1f;
         private Collider2D _dropThrough;
-        private float _dropTimer;
 
         private bool _sealed;
         private SealStone[] _seals;
@@ -184,7 +181,7 @@ namespace SteamGame.Prototype
 
             if (_sealed) TickSeal(dt);
             if (Kind == EnemyKind.LightLord) TickLord(dt);
-            if (IsBoss) TickDropThrough(dt);
+            if (IsBoss) TickDropThrough();
             return false;
         }
 
@@ -192,21 +189,21 @@ namespace SteamGame.Prototype
         /// 보스가 발판 위에 있고 플레이어가 아래에 있으면 발판을 뚫고 내려온다.
         /// 공격 중에는 하지 않고, 쫓거나 숨을 고를 때만 한다.
         /// </summary>
-        private void TickDropThrough(float dt)
+        private void TickDropThrough()
         {
             if (_dropThrough != null)
             {
                 _body.WakeUp();
-                _dropTimer -= dt;
-                float feet = _body.position.y - _size.y * 0.5f;
-                bool cleared = feet < _dropThrough.bounds.min.y - 0.05f;
-                if (cleared || _dropTimer <= 0f)
-                {
-                    // 그사이 깨진 유리 발판이면 다시 생길 때까지 기다렸다가 되돌린다.
-                    if (!_dropThrough.enabled) return;
-                    Physics2D.IgnoreCollision(_collider, _dropThrough, false);
-                    _dropThrough = null;
-                }
+                // 보스 몸이 발판과 완전히 떨어진 뒤에만 다시 밟을 수 있게 한다.
+                // 몸이 발판에 걸친 채로 되돌리면, 물리 엔진이 가장 가까운 쪽인 발판 위로 보스를 밀어 올린다.
+                // 발판 위아래로 여유를 두어, 막 떨어지기 시작한 순간에 되돌리지 않는다.
+                Bounds platformBounds = _dropThrough.bounds;
+                platformBounds.Expand(new Vector3(0.1f, 0.4f, 0f));
+                if (_collider.bounds.Intersects(platformBounds)) return;
+                // 그사이 깨진 유리 발판이면 다시 생길 때까지 기다렸다가 되돌린다.
+                if (!_dropThrough.enabled) return;
+                Physics2D.IgnoreCollision(_collider, _dropThrough, false);
+                _dropThrough = null;
                 return;
             }
 
@@ -219,7 +216,6 @@ namespace SteamGame.Prototype
             if (platform == null) return;
             Physics2D.IgnoreCollision(_collider, platform, true);
             _dropThrough = platform;
-            _dropTimer = DropMaxTime;
             // 가만히 서 있던 몸은 물리 엔진이 재워 두어서 중력을 받지 않는다. 깨우고 아래로 살짝 밀어 준다.
             _body.WakeUp();
             _body.linearVelocity = new Vector2(_body.linearVelocity.x, -3f);
