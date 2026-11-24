@@ -196,6 +196,7 @@ namespace SteamGame.Prototype
         {
             if (_dropThrough != null)
             {
+                _body.WakeUp();
                 _dropTimer -= dt;
                 float feet = _body.position.y - _size.y * 0.5f;
                 bool cleared = feet < _dropThrough.bounds.min.y - 0.05f;
@@ -212,22 +213,47 @@ namespace SteamGame.Prototype
             if (_state != State.Chase && _state != State.Recover) return;
             if (Mathf.Abs(_body.linearVelocity.y) > 0.5f) return;
 
-            float bossFeet = _body.position.y - _size.y * 0.5f;
-            float playerFeet = _player.Position.y - PlayerController.BodySize.y * 0.5f;
-            if (bossFeet - playerFeet < DropHeight) return;
+            if (!PlayerIsBelow) return;
 
             Collider2D platform = OneWayPlatformUnderFeet();
             if (platform == null) return;
             Physics2D.IgnoreCollision(_collider, platform, true);
             _dropThrough = platform;
             _dropTimer = DropMaxTime;
+            // 가만히 서 있던 몸은 물리 엔진이 재워 두어서 중력을 받지 않는다. 깨우고 아래로 살짝 밀어 준다.
+            _body.WakeUp();
+            _body.linearVelocity = new Vector2(_body.linearVelocity.x, -3f);
+        }
+
+        /// <summary>플레이어의 발이 보스의 발보다 확실히 아래에 있는지.</summary>
+        private bool PlayerIsBelow
+        {
+            get
+            {
+                float bossFeet = _body.position.y - _size.y * 0.5f;
+                float playerFeet = _player.Position.y - PlayerController.BodySize.y * 0.5f;
+                return bossFeet - playerFeet >= DropHeight;
+            }
+        }
+
+        /// <summary>
+        /// 그쪽으로 걸어가도 되는지. 앞에 바닥이 있으면 된다.
+        /// 바닥이 없어도 플레이어가 아래에 있고 떨어질 곳에 땅이 있으면 발판 끝에서 걸어 내려간다.
+        /// </summary>
+        private bool CanWalkToward(int direction)
+        {
+            if (HasGroundToward(direction)) return true;
+            if (!PlayerIsBelow) return false;
+            Vector2 ahead = _body.position + new Vector2(direction * (_size.x * 0.5f + 0.35f), -_size.y * 0.5f + 0.1f);
+            return Combat.SolidDistanceBelow(ahead, 12f) >= 0f;
         }
 
         /// <summary>발밑이 아래에서 뚫고 올라갈 수 있는 발판이면 그 발판을, 아니면 null을 준다.</summary>
         private Collider2D OneWayPlatformUnderFeet()
         {
+            // 발판 끝에 걸쳐 서 있어도 찾도록 발바닥 너비만큼 살핀다.
             Vector2 below = _body.position + new Vector2(0f, -_size.y * 0.5f - 0.1f);
-            Collider2D[] hits = Physics2D.OverlapPointAll(below);
+            Collider2D[] hits = Physics2D.OverlapBoxAll(below, new Vector2(_size.x * 0.9f, 0.15f), 0f);
             for (int i = 0; i < hits.Length; i++)
             {
                 if (hits[i].usedByEffector && hits[i].GetComponent<PlatformEffector2D>() != null) return hits[i];
@@ -376,11 +402,11 @@ namespace SteamGame.Prototype
             {
                 // 달은 거리를 둔다. 너무 가까우면 물러나고, 너무 멀면 다가간다.
                 int away = toPlayer.x >= 0f ? -1 : 1;
-                if (distanceX < TwinMoonKeepAway && HasGroundToward(away)) return away * MoveSpeed;
-                if (distanceX > TwinMoonApproach && HasGroundAhead()) return _facing * MoveSpeed;
+                if (distanceX < TwinMoonKeepAway && CanWalkToward(away)) return away * MoveSpeed;
+                if (distanceX > TwinMoonApproach && CanWalkToward(_facing)) return _facing * MoveSpeed;
                 return 0f;
             }
-            return distanceX > 3f && HasGroundAhead() ? _facing * MoveSpeed : 0f;
+            return distanceX > 3f && CanWalkToward(_facing) ? _facing * MoveSpeed : 0f;
         }
 
         private bool HasGroundToward(int direction)
