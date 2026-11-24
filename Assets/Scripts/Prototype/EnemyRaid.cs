@@ -70,6 +70,13 @@ namespace SteamGame.Prototype
         private float _staggerTimer;
         private int _lungesLeft;
 
+        /// <summary>보스 발이 플레이어 발보다 이만큼 높이 있으면 발판을 뚫고 내려온다.</summary>
+        private const float DropHeight = 1.2f;
+        /// <summary>발판을 뚫고 내려오는 데 기다려 주는 가장 긴 시간(초). 지나면 다시 밟을 수 있다.</summary>
+        private const float DropMaxTime = 1f;
+        private Collider2D _dropThrough;
+        private float _dropTimer;
+
         private bool _sealed;
         private SealStone[] _seals;
         private float _sealTime;
@@ -177,7 +184,55 @@ namespace SteamGame.Prototype
 
             if (_sealed) TickSeal(dt);
             if (Kind == EnemyKind.LightLord) TickLord(dt);
+            if (IsBoss) TickDropThrough(dt);
             return false;
+        }
+
+        /// <summary>
+        /// 보스가 발판 위에 있고 플레이어가 아래에 있으면 발판을 뚫고 내려온다.
+        /// 공격 중에는 하지 않고, 쫓거나 숨을 고를 때만 한다.
+        /// </summary>
+        private void TickDropThrough(float dt)
+        {
+            if (_dropThrough != null)
+            {
+                _dropTimer -= dt;
+                float feet = _body.position.y - _size.y * 0.5f;
+                bool cleared = feet < _dropThrough.bounds.min.y - 0.05f;
+                if (cleared || _dropTimer <= 0f)
+                {
+                    // 그사이 깨진 유리 발판이면 다시 생길 때까지 기다렸다가 되돌린다.
+                    if (!_dropThrough.enabled) return;
+                    Physics2D.IgnoreCollision(_collider, _dropThrough, false);
+                    _dropThrough = null;
+                }
+                return;
+            }
+
+            if (_state != State.Chase && _state != State.Recover) return;
+            if (Mathf.Abs(_body.linearVelocity.y) > 0.5f) return;
+
+            float bossFeet = _body.position.y - _size.y * 0.5f;
+            float playerFeet = _player.Position.y - PlayerController.BodySize.y * 0.5f;
+            if (bossFeet - playerFeet < DropHeight) return;
+
+            Collider2D platform = OneWayPlatformUnderFeet();
+            if (platform == null) return;
+            Physics2D.IgnoreCollision(_collider, platform, true);
+            _dropThrough = platform;
+            _dropTimer = DropMaxTime;
+        }
+
+        /// <summary>발밑이 아래에서 뚫고 올라갈 수 있는 발판이면 그 발판을, 아니면 null을 준다.</summary>
+        private Collider2D OneWayPlatformUnderFeet()
+        {
+            Vector2 below = _body.position + new Vector2(0f, -_size.y * 0.5f - 0.1f);
+            Collider2D[] hits = Physics2D.OverlapPointAll(below);
+            for (int i = 0; i < hits.Length; i++)
+            {
+                if (hits[i].usedByEffector && hits[i].GetComponent<PlatformEffector2D>() != null) return hits[i];
+            }
+            return null;
         }
 
         /// <summary>true이면 이 공격은 막혔다.</summary>

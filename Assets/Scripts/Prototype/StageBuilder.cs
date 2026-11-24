@@ -100,7 +100,9 @@ namespace SteamGame.Prototype
 
         private static readonly Color GlassColor = new Color(0.7f, 0.92f, 1f, 0.6f);
         private static readonly Color GlassCapColor = new Color(0.85f, 1f, 1f, 0.9f);
-        private static readonly Color LightShaftColor = new Color(1f, 0.95f, 0.75f, 0.07f);
+        // 보스의 빛기둥(노랗고 곧게 내리꽂힘)과 헷갈리지 않도록 푸른빛으로 비스듬히 비춘다.
+        private static readonly Color LightShaftColor = new Color(0.8f, 0.9f, 1f, 0.05f);
+        private const float LightShaftTilt = -24f;
 
         private static Theme _theme = Citadel;
 
@@ -248,7 +250,7 @@ namespace SteamGame.Prototype
             Ground(0f, width);
             Platform(parent, 11f, 2.2f, 4f);
             Platform(parent, 29f, 2.2f, 4f);
-            Decorate(parent, 0f, width);
+            Decorate(parent, 0f, width, false);
             layout.PlayerSpawn = new Vector2(4f, GroundTop);
             layout.Enemies.Add(new EnemySpawn(EnemyKind.TwinSun, new Vector2(22f, GroundTop)));
             layout.Enemies.Add(new EnemySpawn(EnemyKind.TwinMoon, new Vector2(32f, GroundTop)));
@@ -264,7 +266,7 @@ namespace SteamGame.Prototype
             Platform(parent, 10f, 2.4f, 4f);
             Platform(parent, 32f, 2.4f, 4f);
             Glass(parent, 21f, 3.6f, 5f);
-            Decorate(parent, 0f, width);
+            Decorate(parent, 0f, width, false);
             layout.PlayerSpawn = new Vector2(4f, GroundTop);
             layout.Enemies.Add(new EnemySpawn(EnemyKind.LightLord, new Vector2(30f, GroundTop)));
             layout.ExitPosition = new Vector2(39f, GroundTop);
@@ -522,7 +524,8 @@ namespace SteamGame.Prototype
         }
 
         /// <summary>움직임이 눈에 보이도록 배경에 어두운 기둥을 세운다. 충돌하지 않는다.</summary>
-        private static void Decorate(Transform parent, float x, float width)
+        /// <summary>배경 기둥을 세운다. 보스방에서는 빛줄기를 넣지 않는다(빛기둥 공격과 헷갈리지 않게).</summary>
+        private static void Decorate(Transform parent, float x, float width, bool lightShafts = true)
         {
             for (int i = 0; i < 3; i++)
             {
@@ -532,12 +535,13 @@ namespace SteamGame.Prototype
                 PixelSprites.CreateTiled("Backdrop", parent, new Vector2(centerX, GroundTop + pillarHeight * 0.5f), new Vector2(pillarWidth, pillarHeight), "Stone", PixelSprites.PixelsPerUnit, _theme.Backdrop, -10);
             }
 
-            if (!_theme.LightShafts) return;
-            // 빛의 성소: 높은 창에서 내려오는 희미한 빛줄기.
+            if (!_theme.LightShafts || !lightShafts) return;
+            // 빛의 성소: 높은 창에서 비스듬히 들어오는 희미한 빛줄기. 바닥까지 닿지 않는다.
             for (int i = 0; i < 2; i++)
             {
                 float centerX = x + Random.Range(2f, width - 2f);
-                PrototypeArt.CreateBox("LightShaft", parent, new Vector2(centerX, GroundTop + 9f), new Vector2(Random.Range(1.2f, 2.4f), 22f), LightShaftColor, -15);
+                SpriteRenderer shaft = PrototypeArt.CreateBox("LightShaft", parent, new Vector2(centerX, GroundTop + 12f), new Vector2(Random.Range(1.2f, 2.4f), 16f), LightShaftColor, -15);
+                shaft.transform.localRotation = Quaternion.Euler(0f, 0f, LightShaftTilt);
             }
         }
     }
