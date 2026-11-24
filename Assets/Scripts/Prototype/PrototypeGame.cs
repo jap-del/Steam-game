@@ -650,18 +650,22 @@ namespace SteamGame.Prototype
             }
         }
 
+        /// <summary>
+        /// 적의 체력(보통 난이도 기준). 스테이지가 오를수록 늘어난다.
+        /// 플레이어는 한 번에 10, 분신은 5, 협공은 두 배를 준다.
+        /// </summary>
         private float HealthFor(EnemyKind kind)
         {
             int extra = _stage - 1;
             switch (kind)
             {
                 case EnemyKind.Dummy: return 100f;
-                case EnemyKind.MidBoss: return 160f + 70f * extra;
-                case EnemyKind.Boss: return 260f + 120f * extra;
+                case EnemyKind.MidBoss: return 320f + 120f * extra;
+                case EnemyKind.Boss: return 520f + 200f * extra;
                 // 2스테이지부터 나오는 보스들. 3스테이지 이후에는 같은 보스가 더 단단해진다.
                 case EnemyKind.TwinSun:
-                case EnemyKind.TwinMoon: return 150f + 60f * Mathf.Max(0, extra - 1);
-                case EnemyKind.LightLord: return 520f + 160f * Mathf.Max(0, extra - 1);
+                case EnemyKind.TwinMoon: return 280f + 100f * Mathf.Max(0, extra - 1);
+                case EnemyKind.LightLord: return 1000f + 300f * Mathf.Max(0, extra - 1);
                 case EnemyKind.Shield: return 40f + 12f * extra;
                 case EnemyKind.Flyer: return 20f + 6f * extra;
                 default: return 30f + 10f * extra;

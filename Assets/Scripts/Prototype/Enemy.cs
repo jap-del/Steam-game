@@ -79,7 +79,11 @@ namespace SteamGame.Prototype
         private const float FlyerInterval = 1.6f;
 
         private const float BossNoticeRange = 18f;
-        private const float BossWindupTime = 0.6f;
+        private const float BossWindupTime = 0.5f;
+        /// <summary>보스가 흩뿌리는 탄의 속도. 잡몹 탄(ProjectileSpeed)보다 빠르다.</summary>
+        private const float BossProjectileSpeed = 8.5f;
+        /// <summary>스테이지 끝 보스의 돌진과 내려찍기에 맞으면 잃는 체력. 다른 공격은 모두 1이다.</summary>
+        private const int FinalBossHeavyDamage = 2;
         private const float BossLungeTime = 0.4f;
         private const float BossLungeSpeed = 14f;
         private const float BossSlamAirTime = 0.8f;
@@ -675,11 +679,11 @@ namespace SteamGame.Prototype
                     {
                         case Pattern.Spread:
                             FireSpread(toPlayer, SpreadCount());
-                            Enter(State.Recover, 0.9f);
+                            Enter(State.Recover, 0.75f);
                             return 0f;
                         case Pattern.Bombs:
                             ThrowBombs();
-                            Enter(State.Recover, 0.9f);
+                            Enter(State.Recover, 0.75f);
                             return 0f;
                         case Pattern.Pillars:
                             CallPillars();
@@ -720,7 +724,7 @@ namespace SteamGame.Prototype
                         if (landed || _stateTimer <= 0f)
                         {
                             Land();
-                            Enter(State.Recover, enraged ? 0.9f : 1.2f);
+                            Enter(State.Recover, enraged ? 0.75f : 1f);
                             return 0f;
                         }
                         return _slamVelocityX;
@@ -728,7 +732,7 @@ namespace SteamGame.Prototype
 
                     if (_collider.bounds.Intersects(_player.Collider.bounds))
                     {
-                        _player.TakeDamage(1, _body.position.x);
+                        _player.TakeDamage(HeavyHitDamage, _body.position.x);
                     }
                     _stateTimer -= Time.fixedDeltaTime;
                     if (_stateTimer <= 0f)
@@ -742,7 +746,7 @@ namespace SteamGame.Prototype
                             Warn(_body.position + Vector2.up * (_size.y * 0.5f + 0.9f), PatternHint(Pattern.Lunge));
                             return 0f;
                         }
-                        Enter(State.Recover, enraged ? 0.8f : 1.1f);
+                        Enter(State.Recover, enraged ? 0.65f : 0.9f);
                     }
                     return HasGroundAhead() ? _facing * BossLungeSpeed : 0f;
 
@@ -801,9 +805,12 @@ namespace SteamGame.Prototype
             {
                 float angle = baseAngle + (i - (count - 1) * 0.5f) * step;
                 Vector2 direction = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
-                _game.SpawnProjectile(_body.position, direction * ProjectileSpeed, 0.35f);
+                _game.SpawnProjectile(_body.position, direction * BossProjectileSpeed, 0.35f);
             }
         }
+
+        /// <summary>보스 몸으로 하는 큰 공격(돌진, 내려찍기)의 피해. 스테이지 끝 보스는 더 아프다.</summary>
+        private int HeavyHitDamage => IsFinalBoss ? FinalBossHeavyDamage : 1;
 
         /// <summary>내려찍기 착지: 바로 옆에 있으면 피해를 주고, 바닥을 따라 양쪽으로 충격파를 보낸다.</summary>
         private void Land()
@@ -812,7 +819,7 @@ namespace SteamGame.Prototype
             reach.Expand(new Vector3(1.2f, 0.4f, 0f));
             if (reach.Intersects(_player.Collider.bounds))
             {
-                _player.TakeDamage(1, _body.position.x);
+                _player.TakeDamage(HeavyHitDamage, _body.position.x);
             }
 
             Vector2 feet = _body.position + new Vector2(0f, -_size.y * 0.5f + 0.35f);

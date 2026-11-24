@@ -288,7 +288,7 @@ namespace SteamGame.Prototype
                 case Pattern.Judgment: return JudgmentCastTime;
                 case Pattern.Mark: return 0.7f;
                 case Pattern.Pillars: return 0.45f;
-                default: return Kind == EnemyKind.LightLord && _phase >= 3 ? 0.5f : BossWindupTime;
+                default: return Kind == EnemyKind.LightLord && _phase >= 3 ? 0.42f : BossWindupTime;
             }
         }
 
@@ -296,10 +296,10 @@ namespace SteamGame.Prototype
         {
             switch (Kind)
             {
-                case EnemyKind.LightLord: return _phase >= 3 ? 0.5f : 0.9f;
+                case EnemyKind.LightLord: return _phase >= 3 ? 0.4f : 0.75f;
                 case EnemyKind.TwinSun:
-                case EnemyKind.TwinMoon: return enraged ? 0.35f : 1f;
-                default: return enraged ? 0.6f : 1.1f;
+                case EnemyKind.TwinMoon: return enraged ? 0.3f : 0.8f;
+                default: return enraged ? 0.45f : 0.9f;
             }
         }
 
