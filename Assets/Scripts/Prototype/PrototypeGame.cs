@@ -178,10 +178,11 @@ namespace SteamGame.Prototype
         public IList<Vector2> GimmickPoints => _layout != null ? _layout.GimmickPoints : null;
 
         /// <summary>
-        /// 강화를 고르는 동안과 보스 등장 연출 동안에는 게임이 멈춘다.
-        /// 연출을 건너뛴 키가 점프나 공격으로 이어지지 않도록, 연출이 끝난 프레임까지 멈춘 것으로 친다.
+        /// 강화를 고르는 동안, 보스 등장 연출 동안, Esc 설정 화면이 열려 있는 동안에는 게임이 멈춘다.
+        /// 연출을 건너뛰거나 메뉴를 닫은 키가 점프나 공격으로 이어지지 않도록, 끝난 프레임까지 멈춘 것으로 친다.
         /// </summary>
-        public bool IsPaused => _choices != null || _introActive || Time.frameCount == _introEndFrame || _runCleared;
+        public bool IsPaused => _choices != null || _introActive || Time.frameCount == _introEndFrame || _runCleared
+            || _menu != MenuScreen.None || Time.frameCount == _menuClosedFrame;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         private static void ResetStatics()
@@ -216,13 +217,16 @@ namespace SteamGame.Prototype
 
         private void Update()
         {
+            // Esc 설정 화면이 열려 있으면 입력은 메뉴가 받는다.
+            if (UpdateMenu()) return;
+
             Keyboard keyboard = Keyboard.current;
-            if (keyboard != null && keyboard.rKey.wasPressedThisFrame)
+            if (KeyBindings.Pressed(GameAction.Restart))
             {
                 _restartRequested = true;
             }
 
-            if (keyboard != null && keyboard.mKey.wasPressedThisFrame)
+            if (KeyBindings.Pressed(GameAction.Mute))
             {
                 Sfx.Muted = !Sfx.Muted;
             }
@@ -497,10 +501,11 @@ namespace SteamGame.Prototype
         private static bool IntroSkipPressed()
         {
             Keyboard keyboard = Keyboard.current;
-            if (keyboard != null && (keyboard.spaceKey.wasPressedThisFrame || keyboard.enterKey.wasPressedThisFrame || keyboard.jKey.wasPressedThisFrame || keyboard.eKey.wasPressedThisFrame || keyboard.escapeKey.wasPressedThisFrame))
+            if (keyboard != null && (keyboard.spaceKey.wasPressedThisFrame || keyboard.enterKey.wasPressedThisFrame || keyboard.escapeKey.wasPressedThisFrame))
             {
                 return true;
             }
+            if (KeyBindings.Pressed(GameAction.Jump) || KeyBindings.Pressed(GameAction.Attack) || KeyBindings.Pressed(GameAction.Interact)) return true;
 
             Mouse mouse = Mouse.current;
             if (mouse != null && mouse.leftButton.wasPressedThisFrame) return true;
@@ -755,7 +760,8 @@ namespace SteamGame.Prototype
         private static bool ContinuePressed()
         {
             Keyboard keyboard = Keyboard.current;
-            if (keyboard != null && (keyboard.eKey.wasPressedThisFrame || keyboard.spaceKey.wasPressedThisFrame || keyboard.enterKey.wasPressedThisFrame)) return true;
+            if (keyboard != null && (keyboard.spaceKey.wasPressedThisFrame || keyboard.enterKey.wasPressedThisFrame)) return true;
+            if (KeyBindings.Pressed(GameAction.Interact)) return true;
 
             Gamepad gamepad = Gamepad.current;
             return gamepad != null && (gamepad.buttonSouth.wasPressedThisFrame || gamepad.startButton.wasPressedThisFrame);
@@ -961,17 +967,21 @@ namespace SteamGame.Prototype
             _nearAltar = _layout.HasAltar && IsNear(_layout.Altar);
 
             // 테스트용 건너뛰기: 숫자 2는 다음 스테이지 거점, 3은 이 스테이지의 중간 보스방, 6은 보스방.
+            // 키 설정에서 그 숫자를 게임 키로 쓰고 있으면 건너뛰지 않는다.
             Keyboard testKeys = Keyboard.current;
             if (testKeys != null)
             {
-                if (testKeys.digit2Key.wasPressedThisFrame) _testJump = 0;
-                else if (testKeys.digit3Key.wasPressedThisFrame) _testJump = 3;
-                else if (testKeys.digit6Key.wasPressedThisFrame) _testJump = 6;
+                if (testKeys.digit2Key.wasPressedThisFrame && !KeyBindings.IsBound(Key.Digit2)) _testJump = 0;
+                else if (testKeys.digit3Key.wasPressedThisFrame && !KeyBindings.IsBound(Key.Digit3)) _testJump = 3;
+                else if (testKeys.digit6Key.wasPressedThisFrame && !KeyBindings.IsBound(Key.Digit6)) _testJump = 6;
             }
 
-            // 테스트용: 첫 거점에서 Delete(맥에서는 delete 키)를 두 번 누르면 저장을 지운다.
+            // 테스트용: 첫 거점에서 Delete(맥에서는 delete 키)를 두 번 누르면 저장을 지운다. 게임 키로 쓰고 있으면 무시한다.
             Keyboard keyboard = Keyboard.current;
-            if (_layout.HasEventDoor && keyboard != null && (keyboard.deleteKey.wasPressedThisFrame || keyboard.backspaceKey.wasPressedThisFrame))
+            bool resetKey = keyboard != null
+                && ((keyboard.deleteKey.wasPressedThisFrame && !KeyBindings.IsBound(Key.Delete))
+                    || (keyboard.backspaceKey.wasPressedThisFrame && !KeyBindings.IsBound(Key.Backspace)));
+            if (_layout.HasEventDoor && resetKey)
             {
                 if (Time.unscaledTime <= _resetArmedUntil)
                 {

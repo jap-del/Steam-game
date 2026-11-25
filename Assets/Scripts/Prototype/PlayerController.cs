@@ -286,17 +286,17 @@ namespace SteamGame.Prototype
 
             if (keyboard != null)
             {
-                if (keyboard.aKey.isPressed || keyboard.leftArrowKey.isPressed) move -= 1f;
-                if (keyboard.dKey.isPressed || keyboard.rightArrowKey.isPressed) move += 1f;
-                jumpPressed |= keyboard.spaceKey.wasPressedThisFrame || keyboard.wKey.wasPressedThisFrame || keyboard.upArrowKey.wasPressedThisFrame;
-                jumpHeld |= keyboard.spaceKey.isPressed || keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed;
-                attackPressed |= keyboard.jKey.wasPressedThisFrame || keyboard.zKey.wasPressedThisFrame;
-                swapPressed |= keyboard.kKey.wasPressedThisFrame || keyboard.xKey.wasPressedThisFrame;
-                dashPressed |= keyboard.leftShiftKey.wasPressedThisFrame || keyboard.lKey.wasPressedThisFrame || keyboard.cKey.wasPressedThisFrame;
-                interactPressed |= keyboard.eKey.wasPressedThisFrame || keyboard.fKey.wasPressedThisFrame;
-                // 아래(S, 아래 방향키)는 발판에서 내려가기에 쓰므로 분신 고정은 Q와 V로 한다.
-                anchorPressed |= keyboard.qKey.wasPressedThisFrame || keyboard.vKey.wasPressedThisFrame;
-                downHeld |= keyboard.sKey.isPressed || keyboard.downArrowKey.isPressed;
+                // 키보드 키는 Esc 설정 화면의 키 설정에서 바꿀 수 있다(KeyBindings).
+                if (KeyBindings.Held(GameAction.MoveLeft)) move -= 1f;
+                if (KeyBindings.Held(GameAction.MoveRight)) move += 1f;
+                jumpPressed |= KeyBindings.Pressed(GameAction.Jump);
+                jumpHeld |= KeyBindings.Held(GameAction.Jump);
+                attackPressed |= KeyBindings.Pressed(GameAction.Attack);
+                swapPressed |= KeyBindings.Pressed(GameAction.Swap);
+                dashPressed |= KeyBindings.Pressed(GameAction.Dash);
+                interactPressed |= KeyBindings.Pressed(GameAction.Interact);
+                anchorPressed |= KeyBindings.Pressed(GameAction.Anchor);
+                downHeld |= KeyBindings.Held(GameAction.Down);
             }
 
             if (mouse != null)

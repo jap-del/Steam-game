@@ -61,8 +61,18 @@ namespace SteamGame.Prototype
         {
             Event current = Event.current;
             _hudRepaint = current.type == EventType.Repaint;
-            // 강화 카드의 클릭을 받을 때 말고는 그리는 차례에만 그린다.
-            if (!_hudRepaint && _choices == null) return;
+            if (!_hudRepaint)
+            {
+                // 그리는 차례가 아니면 클릭만 받는다. 설정 화면이 열려 있으면 설정 화면의 클릭만 받는다.
+                if (MenuOpen)
+                {
+                    Ui.Begin();
+                    DrawMenu();
+                    return;
+                }
+                // 강화 카드의 클릭을 받을 때 말고는 그리는 차례에만 그린다.
+                if (_choices == null) return;
+            }
 
             Ui.Begin();
 
@@ -95,6 +105,7 @@ namespace SteamGame.Prototype
 
             if (_choices != null) DrawChoices();
             DrawRoomFade();
+            if (MenuOpen) DrawMenu();
             GUI.color = Color.white;
         }
 
@@ -108,7 +119,7 @@ namespace SteamGame.Prototype
             DrawHealthAndSkills(Ui.U(14f), Ui.U(12f));
             DrawStageTrack();
             DrawResources();
-            if (_bosses.Count == 0) DrawControls();
+            if (_bosses.Count == 0 && !MenuOpen) DrawMenuHint();
         }
 
         private void DrawHealthAndSkills(float left, float top)
@@ -167,17 +178,17 @@ namespace SteamGame.Prototype
 
             float dashTotal = Mathf.Max(0.01f, Stats.DashCooldown);
             float dashLeft = _player.DashCooldownRemaining;
-            DrawSkillSlot(0, new Rect(left, slotTop, slot, slot), "Dash", DashSlotColor, "Shift", dashLeft / dashTotal, dashLeft, true, false, 0f);
+            DrawSkillSlot(0, new Rect(left, slotTop, slot, slot), "Dash", DashSlotColor, KeyBindings.PrimaryName(GameAction.Dash), dashLeft / dashTotal, dashLeft, true, false, 0f);
 
             float swapTotal = Mathf.Max(0.01f, Stats.SwapCooldown);
             float swapLeft = _player.SwapCooldownRemaining;
-            DrawSkillSlot(1, new Rect(left + slot + slotGap, slotTop, slot, slot), "Swap", Ui.Accent, "K", swapLeft / swapTotal, swapLeft, shadowReady, false, 0f);
+            DrawSkillSlot(1, new Rect(left + slot + slotGap, slotTop, slot, slot), "Swap", Ui.Accent, KeyBindings.PrimaryName(GameAction.Swap), swapLeft / swapTotal, swapLeft, shadowReady, false, 0f);
 
             float anchorTotal = Mathf.Max(0.01f, Stats.AnchorCooldown);
             float anchorLeft = _player.AnchorCooldownRemaining;
             bool anchored = _player.AreShadowsAnchored;
             float anchorActive = anchored ? _player.AnchorRemaining / Mathf.Max(0.01f, Stats.AnchorDuration) : 0f;
-            DrawSkillSlot(2, new Rect(left + (slot + slotGap) * 2f, slotTop, slot, slot), "Anchor", Ui.Accent, "Q", anchored ? 0f : anchorLeft / anchorTotal, anchored ? _player.AnchorRemaining : anchorLeft, shadowReady, anchored, anchorActive);
+            DrawSkillSlot(2, new Rect(left + (slot + slotGap) * 2f, slotTop, slot, slot), "Anchor", Ui.Accent, KeyBindings.PrimaryName(GameAction.Anchor), anchored ? 0f : anchorLeft / anchorTotal, anchored ? _player.AnchorRemaining : anchorLeft, shadowReady, anchored, anchorActive);
 
             if (!shadowReady)
             {
@@ -376,6 +387,9 @@ namespace SteamGame.Prototype
             }
         }
 
+        /// <summary>상호작용 키 이름. 키 설정에서 바꾼 키를 따른다.</summary>
+        private static string InteractKey => KeyBindings.PrimaryName(GameAction.Interact);
+
         /// <summary>지금 방에서 할 일. 보스방에서는 보스 막대가 대신하므로 비워 둔다.</summary>
         private string ObjectiveText()
         {
@@ -383,14 +397,14 @@ namespace SteamGame.Prototype
             {
                 case RoomType.Hub:
                     return _layout.HasExit
-                        ? "강화의 제단에서 E를 누르면 " + MetaProgress.CurrencyName + " " + AltarPrice + "개로 강화를 하나 고른다. 오른쪽 출발의 문으로 나가면 " + _stage + "-1 시작"
-                        : "난이도의 문 앞에서 E를 누르면 그 난이도로 1-1을 시작한다";
+                        ? "강화의 제단에서 " + InteractKey + " 키를 누르면 " + MetaProgress.CurrencyName + " " + AltarPrice + "개로 강화를 하나 고른다. 오른쪽 출발의 문으로 나가면 " + _stage + "-1 시작"
+                        : "난이도의 문 앞에서 " + InteractKey + " 키를 누르면 그 난이도로 1-1을 시작한다";
                 case RoomType.Shop:
-                    return "물건 앞에서 E로 산다. 오른쪽 문으로 나간다";
+                    return "물건 앞에서 " + InteractKey + " 키로 산다. 오른쪽 문으로 나간다";
                 case RoomType.Puzzle:
                     return _puzzleSolved
                         ? "퍼즐 해결! 오른쪽 문으로 나간다"
-                        : "발판 두 개를 동시에 밟으면 보상. 한 발판에 서 있다가 다른 발판으로 가면 분신이 대신 밟아 준다. Q로 분신을 고정해도 된다";
+                        : "발판 두 개를 동시에 밟으면 보상. 한 발판에 서 있다가 다른 발판으로 가면 분신이 대신 밟아 준다. " + KeyBindings.PrimaryName(GameAction.Anchor) + " 키로 분신을 고정해도 된다";
                 case RoomType.MidBoss:
                 case RoomType.Boss:
                     return _enemies.Count > 0 ? null : "문이 열렸다. 오른쪽 끝의 문으로";
@@ -444,58 +458,17 @@ namespace SteamGame.Prototype
             Ui.Icon(icon, textLeft - iconSize.x - Ui.U(5f), y + (size.y - iconSize.y) * 0.5f - pop * Ui.U(2f), px, color);
         }
 
-        /// <summary>왼쪽 아래: 조작 키. 싸우는 방에서는 흐리게 그린다.</summary>
-        private void DrawControls()
+        /// <summary>
+        /// 왼쪽 아래: Esc 설정 안내 한 줄. 조작 키 전체는 Esc 설정 화면의 키 설정에서 본다.
+        /// 거점, 상점, 퍼즐방과 첫 방에서는 또렷하게, 싸우는 방에서는 흐리게 그린다.
+        /// </summary>
+        private void DrawMenuHint()
         {
             bool calm = _layout.Type == RoomType.Hub || _layout.Type == RoomType.Shop || _layout.Type == RoomType.Puzzle || (_stage == 1 && _room == 1);
-            float alpha = calm ? 0.95f : 0.5f;
+            float alpha = calm ? 0.95f : 0.45f;
             float keyHeight = Ui.U(13f);
-            float x = Ui.U(14f);
-            float lineHeight = keyHeight + Ui.U(8f);
-            float maxRight = Screen.width - Ui.U(14f);
-
-            string[][] keys =
-            {
-                new[] { "A", "D" },
-                new[] { "Space" },
-                new[] { "S", "+", "Space" },
-                new[] { "J" },
-                new[] { "Shift" },
-                new[] { "K" },
-                new[] { "Q" },
-                new[] { "E" },
-                new[] { "R" },
-                new[] { "M" },
-            };
-            string[] labels = { "이동", "점프", "내려가기", "공격", "대시", "자리 바꾸기", "분신 고정", "상호작용", "다시 시작", Sfx.Muted ? "소리 켜기" : "소리 끄기" };
-
-            // 먼저 줄을 나눠 몇 줄인지 센 뒤, 아래에서부터 위로 쌓는다.
-            float[] widths = new float[labels.Length];
-            for (int i = 0; i < labels.Length; i++) widths[i] = ControlWidth(keys[i], labels[i], keyHeight);
-            int lines = 1;
-            float cursor = x;
-            for (int i = 0; i < labels.Length; i++)
-            {
-                if (cursor + widths[i] > maxRight && cursor > x)
-                {
-                    lines++;
-                    cursor = x;
-                }
-                cursor += widths[i] + Ui.U(12f);
-            }
-
-            float y = Screen.height - Ui.U(14f) - keyHeight - (lines - 1) * lineHeight;
-            cursor = x;
-            for (int i = 0; i < labels.Length; i++)
-            {
-                if (cursor + widths[i] > maxRight && cursor > x)
-                {
-                    y += lineHeight;
-                    cursor = x;
-                }
-                DrawControl(cursor, y, keys[i], labels[i], keyHeight, alpha);
-                cursor += widths[i] + Ui.U(12f);
-            }
+            float y = Screen.height - Ui.U(14f) - keyHeight;
+            DrawControl(Ui.U(14f), y, new[] { "Esc" }, calm ? "설정 · 조작 키 보기와 바꾸기" : "설정", keyHeight, alpha);
         }
 
         private static float ControlWidth(string[] keys, string label, float keyHeight)
@@ -711,7 +684,7 @@ namespace SteamGame.Prototype
                 Color priceColor = affordable ? (item.PaysShards ? Ui.Shard : Ui.Gold) : Ui.Danger;
                 bool near = item == _nearItem;
                 Rect tag = DrawWorldTag(above, item.Title, item.Price.ToString(), priceColor, item.PaysShards ? "Shard" : "Coin", near);
-                if (near) DrawPrompt(tag, item.Description, "E", affordable ? "구매" : (item.PaysShards ? MetaProgress.CurrencyName + "이 부족하다" : "골드가 부족하다"));
+                if (near) DrawPrompt(tag, item.Description, InteractKey, affordable ? "구매" : (item.PaysShards ? MetaProgress.CurrencyName + "이 부족하다" : "골드가 부족하다"));
             }
         }
 
@@ -724,7 +697,7 @@ namespace SteamGame.Prototype
                 DifficultyLevel level = Difficulty.Levels[i];
                 bool near = i == _nearDifficultyDoor;
                 Rect tag = DrawWorldTag(_layout.DifficultyDoors[i] + Vector2.up * 3f, level.Title, "난이도", level.DoorColor, null, near);
-                if (near) DrawPrompt(tag, level.Description, "E", "이 난이도로 시작");
+                if (near) DrawPrompt(tag, level.Description, InteractKey, "이 난이도로 시작");
             }
 
             if (_layout.HasEventDoor)
@@ -743,7 +716,7 @@ namespace SteamGame.Prototype
                 else
                 {
                     Rect tag = DrawWorldTag(above, "강화의 제단", AltarPrice.ToString(), _shards >= AltarPrice ? Ui.Shard : Ui.Danger, "Shard", near);
-                    if (near) DrawPrompt(tag, null, "E", "강화 셋 중 하나 고르기");
+                    if (near) DrawPrompt(tag, null, InteractKey, "강화 셋 중 하나 고르기");
                 }
             }
 
@@ -1078,10 +1051,13 @@ namespace SteamGame.Prototype
                 float keyHeight = Ui.U(13f);
                 string tail = " 처음 거점으로";
                 GUIStyle style = Ui.Style(9f, true);
-                float total = KeycapWidth("E", keyHeight) + Ui.U(4f) + KeycapWidth("Space", keyHeight) + Ui.Measure(tail, style).x;
+                // 상호작용 키와 Space 둘 다 받는다. 상호작용 키를 Space로 바꿨거나 비웠으면 Space만 보여 준다.
+                string interact = InteractKey;
+                bool showInteract = interact != "Space" && interact != "-";
+                float total = (showInteract ? KeycapWidth(interact, keyHeight) + Ui.U(4f) : 0f) + KeycapWidth("Space", keyHeight) + Ui.Measure(tail, style).x;
                 float x = cx - total * 0.5f;
                 float keyY = panel.yMax - Ui.U(16f) - keyHeight;
-                x += Ui.Keycap(x, keyY, "E", keyHeight, blink, true) + Ui.U(4f);
+                if (showInteract) x += Ui.Keycap(x, keyY, interact, keyHeight, blink, true) + Ui.U(4f);
                 x += Ui.Keycap(x, keyY, "Space", keyHeight, blink, true);
                 Ui.Text(x, keyY + keyHeight * 0.5f, tail, 9f, Ui.Alpha(Ui.Good, blink), true, TextAnchor.MiddleLeft);
             }
