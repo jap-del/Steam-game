@@ -24,6 +24,8 @@ namespace SteamGame.Prototype
         private const float InvulnerableTime = 0.8f;
         private const float ShockwaveRadius = 2.2f;
         private const int TrailDotCount = 10;
+        /// <summary>발판을 뚫고 내려갈 때 아래로 밀어 주는 속도.</summary>
+        private const float DropSpeed = 4f;
 
         /// <summary>분신 하나와, 그 분신이 따라 할 과거 기록.</summary>
         private sealed class ShadowSlot
@@ -38,6 +40,9 @@ namespace SteamGame.Prototype
         private readonly List<ShadowSlot> _shadows = new List<ShadowSlot>();
         private readonly ContactPoint2D[] _contacts = new ContactPoint2D[8];
         private readonly List<SpriteRenderer> _trailDots = new List<SpriteRenderer>();
+        /// <summary>지금 뚫고 내려가는 중인 발판들. 몸이 발판에서 완전히 벗어나면 다시 밟을 수 있게 된다.</summary>
+        private readonly List<Collider2D> _dropThrough = new List<Collider2D>();
+        private bool _dropRequested;
         private float _anchorTimer;
         private float _anchorCooldownTimer;
         private bool _shadowsAnchored;
@@ -277,6 +282,7 @@ namespace SteamGame.Prototype
             bool dashPressed = false;
             bool interactPressed = false;
             bool anchorPressed = false;
+            bool downHeld = false;
 
             if (keyboard != null)
             {
@@ -288,7 +294,9 @@ namespace SteamGame.Prototype
                 swapPressed |= keyboard.kKey.wasPressedThisFrame || keyboard.xKey.wasPressedThisFrame;
                 dashPressed |= keyboard.leftShiftKey.wasPressedThisFrame || keyboard.lKey.wasPressedThisFrame || keyboard.cKey.wasPressedThisFrame;
                 interactPressed |= keyboard.eKey.wasPressedThisFrame || keyboard.fKey.wasPressedThisFrame;
-                anchorPressed |= keyboard.sKey.wasPressedThisFrame || keyboard.downArrowKey.wasPressedThisFrame || keyboard.qKey.wasPressedThisFrame;
+                // 아래(S, 아래 방향키)는 발판에서 내려가기에 쓰므로 분신 고정은 Q와 V로 한다.
+                anchorPressed |= keyboard.qKey.wasPressedThisFrame || keyboard.vKey.wasPressedThisFrame;
+                downHeld |= keyboard.sKey.isPressed || keyboard.downArrowKey.isPressed;
             }
 
             if (mouse != null)
@@ -310,6 +318,7 @@ namespace SteamGame.Prototype
                 dashPressed |= gamepad.buttonEast.wasPressedThisFrame || gamepad.rightShoulder.wasPressedThisFrame;
                 interactPressed |= gamepad.leftShoulder.wasPressedThisFrame;
                 anchorPressed |= gamepad.leftTrigger.wasPressedThisFrame;
+                downHeld |= gamepad.leftStick.ReadValue().y < -0.5f || gamepad.dpad.down.isPressed;
             }
 
             _moveInput = Mathf.Clamp(move, -1f, 1f);
@@ -320,7 +329,9 @@ namespace SteamGame.Prototype
                 else if (_moveInput < -0.01f) _facing = -1;
             }
 
-            if (jumpPressed) _jumpBufferTimer = JumpBufferTime;
+            // 아래를 누른 채 점프하면 밟고 있는 발판 아래로 내려간다. 발판이 아닌 땅 위라면 그냥 점프한다.
+            if (jumpPressed && downHeld) _dropRequested = true;
+            else if (jumpPressed) _jumpBufferTimer = JumpBufferTime;
             if (dashPressed) TryDash();
             if (attackPressed) TryAttack();
             if (anchorPressed) TryAnchor();
@@ -432,8 +443,22 @@ namespace SteamGame.Prototype
                 return;
             }
 
+            RestoreDroppedPlatforms();
+
             bool onGlass;
             bool grounded = IsGrounded(out onGlass);
+            if (_dropRequested)
+            {
+                _dropRequested = false;
+                if (grounded && _dashTimer <= 0f && DropThroughPlatform())
+                {
+                    grounded = false;
+                }
+                else
+                {
+                    _jumpBufferTimer = JumpBufferTime;
+                }
+            }
             if (grounded)
             {
                 _coyoteTimer = CoyoteTime;
@@ -494,6 +519,73 @@ namespace SteamGame.Prototype
                 }
             }
             UpdateTrail();
+        }
+
+        /// <summary>
+        /// 발밑의 한쪽 방향 발판(아래에서 뚫고 올라갈 수 있는 발판)을 뚫고 내려간다. 내려갈 발판이 없으면 false.
+        /// 발판과의 충돌만 잠시 끄므로, 바로 아래에 다른 발판이나 땅이 있으면 거기에 내려선다.
+        /// </summary>
+        private bool DropThroughPlatform()
+        {
+            // 발판 끝에 걸쳐 서 있어도 찾도록 발바닥 너비만큼 살핀다.
+            Vector2 below = _body.position + new Vector2(0f, -BodySize.y * 0.5f - 0.1f);
+            Collider2D[] hits = Physics2D.OverlapBoxAll(below, new Vector2(BodySize.x * 0.95f, 0.2f), 0f);
+            int found = 0;
+            for (int i = 0; i < hits.Length; i++)
+            {
+                Collider2D hit = hits[i];
+                if (hit == null || hit == _collider || hit.isTrigger) continue;
+                if (hit.usedByEffector && hit.GetComponent<PlatformEffector2D>() != null)
+                {
+                    found++;
+                }
+                else if (hit.attachedRigidbody == null)
+                {
+                    // 보통 땅을 함께 밟고 있으면 내려갈 수 없다.
+                    return false;
+                }
+            }
+            if (found == 0) return false;
+
+            for (int i = 0; i < hits.Length; i++)
+            {
+                Collider2D hit = hits[i];
+                if (hit == null || hit.isTrigger || !hit.usedByEffector || hit.GetComponent<PlatformEffector2D>() == null) continue;
+                if (_dropThrough.Contains(hit)) continue;
+                Physics2D.IgnoreCollision(_collider, hit, true);
+                _dropThrough.Add(hit);
+            }
+
+            // 가만히 서 있던 몸은 물리 엔진이 재워 둘 수 있다. 깨우고 아래로 살짝 밀어 준다.
+            _body.WakeUp();
+            _body.linearVelocity = new Vector2(_body.linearVelocity.x, -DropSpeed);
+            _coyoteTimer = 0f;
+            _jumpBufferTimer = 0f;
+            return true;
+        }
+
+        /// <summary>
+        /// 뚫고 내려간 발판과 몸이 완전히 떨어졌으면 다시 밟을 수 있게 한다.
+        /// 몸이 발판에 걸친 채로 되돌리면 물리 엔진이 몸을 발판 위로 밀어 올리므로 기다린다.
+        /// </summary>
+        private void RestoreDroppedPlatforms()
+        {
+            for (int i = _dropThrough.Count - 1; i >= 0; i--)
+            {
+                Collider2D platform = _dropThrough[i];
+                if (platform == null)
+                {
+                    _dropThrough.RemoveAt(i);
+                    continue;
+                }
+                Bounds platformBounds = platform.bounds;
+                platformBounds.Expand(new Vector3(0.1f, 0.4f, 0f));
+                if (_collider.bounds.Intersects(platformBounds)) continue;
+                // 그사이 깨진 유리 발판이면 다시 생길 때까지 기다렸다가 되돌린다.
+                if (!platform.enabled) continue;
+                Physics2D.IgnoreCollision(_collider, platform, false);
+                _dropThrough.RemoveAt(i);
+            }
         }
 
         /// <summary>첫 번째 분신이 앞으로 지나갈 길에 점을 찍는다. 고정 중이거나 분신이 아직 없으면 숨긴다.</summary>

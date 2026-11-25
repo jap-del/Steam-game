@@ -198,23 +198,52 @@ namespace SteamGame.Prototype
             _ironCracks = 0;
         }
 
-        /// <summary>돌진할 방향을 정한다. 철갑을 두른 동안에는 플레이어가 아니라 분신을 노리고, 분신에 붉은 고리가 생긴다.</summary>
+        /// <summary>
+        /// 돌진할 방향을 정한다. 철갑을 두른 동안에는 플레이어가 아니라 분신을 노리고, 분신 자리에 조준 표시가 생긴다.
+        /// 달려갈 길과 멈출 자리를 바닥에 그린다.
+        /// </summary>
         private void AimRam()
         {
             Vector2 target = _player.Position;
             Vector2 shadow;
+            float windup = WindupFor(Pattern.Ram);
             if (_ironclad && _player.TryGetShadow(out shadow))
             {
                 target = shadow;
-                Transform root = _game.RoomRoot;
-                if (root != null)
-                {
-                    SpriteRenderer ring = RaidArt.Create("RamTarget", root, shadow, new Vector2(1.6f, 1.6f), RaidArt.Ring, RamTargetColor, 12);
-                    Destroy(ring.gameObject, 0.8f);
-                }
+                PathMarker.Reticle(shadow, 1.5f, windup + 0.15f, RamTargetColor);
             }
             _ramDirection = target.x >= _body.position.x ? 1 : -1;
             _facing = _ramDirection;
+
+            float reach = RamReach(_ramDirection, RamSpeed * RamMaxTime);
+            Vector2 front = _body.position + new Vector2(_ramDirection * _size.x * 0.5f, 0f);
+            PathMarker.Lane(front, front + new Vector2(_ramDirection * reach, 0f), _size.y, windup, RamTargetColor);
+        }
+
+        /// <summary>그쪽으로 돌진하면 어디까지 가는지 어림한다. 벽, 낭떠러지, 바위에서 멈춘다.</summary>
+        private float RamReach(int direction, float maxDistance)
+        {
+            float feet = _body.position.y - _size.y * 0.5f;
+            float halfWidth = _size.x * 0.5f;
+            const float step = 0.25f;
+            for (float distance = 0f; distance < maxDistance; distance += step)
+            {
+                float center = _body.position.x + direction * distance;
+                Vector2 chest = new Vector2(center + direction * (halfWidth + 0.3f), _body.position.y);
+                if (Combat.IsSolidAt(chest)) return distance;
+                Vector2 ground = new Vector2(center + direction * (halfWidth + 0.35f), feet - 0.3f);
+                if (!Combat.IsSolidAt(ground)) return distance;
+                float front = center + direction * halfWidth;
+                for (int i = 0; i < _boulders.Count; i++)
+                {
+                    Boulder boulder = _boulders[i];
+                    if (boulder == null) continue;
+                    Vector2 at = boulder.transform.position;
+                    if (feet > at.y + Boulder.Height * 0.5f) continue;
+                    if (Mathf.Abs(at.x - front) <= Boulder.HalfWidth + 0.15f) return distance;
+                }
+            }
+            return maxDistance;
         }
 
         private float StartRam()

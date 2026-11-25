@@ -86,6 +86,7 @@ namespace SteamGame.Prototype
         private const float BossGravityScale = 3.5f;
 
         private static readonly Color WarningColor = new Color(1f, 0.95f, 0.3f, 1f);
+        private static readonly Color BossCalloutColor = new Color(1f, 0.52f, 0.34f, 1f);
 
         private PrototypeGame _game;
         private PlayerController _player;
@@ -628,7 +629,9 @@ namespace SteamGame.Prototype
         /// <summary>공격 예고를 글자와 소리로 알린다.</summary>
         private void Warn(Vector2 position, string text)
         {
-            _game.ShowPopup(position, text, WarningColor);
+            // 보스는 공격 이름을 붉은 판에 담아 띄우고, 잡몹은 느낌표만 띄운다.
+            if (IsBoss) _game.ShowCallout(position, text, BossCalloutColor);
+            else _game.ShowPopup(position, text, WarningColor);
             Sfx.Play(Sound.Warn);
         }
 

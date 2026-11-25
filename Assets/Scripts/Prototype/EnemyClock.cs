@@ -94,6 +94,7 @@ namespace SteamGame.Prototype
         private static readonly Color GuardColor = new Color(1f, 0.78f, 0.4f, 0.85f);
         private static readonly Color BarrageColor = new Color(0.65f, 0.9f, 1f, 1f);
         private static readonly Color MineColor = new Color(1f, 0.6f, 0.3f, 1f);
+        private static readonly Color RewindPathColor = new Color(1f, 0.68f, 0.32f, 1f);
         private static readonly Color MineDialColor = new Color(1f, 0.8f, 0.5f, 0.9f);
         private static readonly Color ReversalColor = new Color(0.7f, 0.95f, 1f, 0.9f);
         private static readonly Color HealTextColor = new Color(0.5f, 1f, 0.6f, 1f);
@@ -345,7 +346,8 @@ namespace SteamGame.Prototype
             float startX = direction > 0 ? 0.7f : width - 0.7f;
             float travelTime = (width - 1.4f) / PendulumSpeed;
             float y = StageBuilder.GroundTop + 0.75f;
-            Hazard.Spawn(new Vector2(width * 0.5f, y), new Vector2(width, 1.5f), PendulumWarn, 0.01f, PendulumColor, 0);
+            Hazard lane = Hazard.Spawn(new Vector2(width * 0.5f, y), new Vector2(width, 1.5f), PendulumWarn, 0.01f, PendulumColor, 0);
+            if (lane != null) lane.ShowDirection(direction);
             Hazard.Spawn(new Vector2(startX, y), new Vector2(1.4f, 1.5f), PendulumWarn, travelTime, PendulumColor, 1, new Vector2(direction * PendulumSpeed, 0f), true);
         }
 
@@ -589,10 +591,18 @@ namespace SteamGame.Prototype
             Sfx.Play(Sound.Freeze, 0.6f);
         }
 
+        /// <summary>달려갈 방향을 바라보는 쪽으로 정하고, 갔다가 되돌아올 길을 그린다.</summary>
+        private void AimRewindDash()
+        {
+            _rewindDirection = _facing;
+            float reach = DashReach(_rewindDirection, RewindSpeed, RewindOutTime);
+            ShowDashPath(_rewindDirection, reach, WindupFor(Pattern.RewindDash), RewindPathColor);
+        }
+
         /// <summary>바라보는 쪽으로 달려갔다가, 잠깐 멈춘 뒤 같은 길로 되돌아온다.</summary>
         private float StartRewindDash()
         {
-            _rewindDirection = _facing;
+            _facing = _rewindDirection;
             _rewindTimer = 0f;
             Enter(State.Attack, RewindOutTime * 2f + RewindPause);
             Sfx.Play(Sound.Dash);
@@ -607,6 +617,12 @@ namespace SteamGame.Prototype
             TouchPlayer(HeavyHitDamage);
             if (_stateTimer <= 0f) return Rest(0.8f);
             if (_rewindTimer < RewindOutTime) return DashBlocked(_rewindDirection) ? 0f : _rewindDirection * RewindSpeed;
+            if (_rewindTimer - dt < RewindOutTime)
+            {
+                // 멈춘 순간에 되돌아갈 길을 보여 준다.
+                float back = DashReach(-_rewindDirection, RewindSpeed, RewindOutTime);
+                ShowDashPath(-_rewindDirection, back, RewindPause, RewindPathColor);
+            }
             if (_rewindTimer < RewindOutTime + RewindPause) return 0f;
             return DashBlocked(-_rewindDirection) ? 0f : -_rewindDirection * RewindSpeed;
         }

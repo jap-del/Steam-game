@@ -60,6 +60,7 @@ namespace SteamGame.Prototype
         private const float LeapAirTime = 0.8f;
         /// <summary>스테이지 끝 보스의 몸에 부딪히면 잃는 체력. 다른 보스는 1이다.</summary>
         private const int FinalBossHeavyDamage = 2;
+        private static readonly Color LeapMarkColor = new Color(1f, 0.55f, 0.2f, 1f);
 
         /// <summary>
         /// 보스: 거리를 좁히다가 자기 순서대로 공격을 고른다.
@@ -217,11 +218,39 @@ namespace SteamGame.Prototype
             }
         }
 
-        /// <summary>예고를 시작할 때 할 일. 돌진할 방향을 정하거나, 심판의 그림자를 드리운다.</summary>
+        /// <summary>예고를 시작할 때 할 일. 돌진할 방향과 길을 정해 보여 주거나, 심판의 그림자를 드리운다.</summary>
         private void OnPatternWindup(Pattern pattern)
         {
             if (pattern == Pattern.Ram) AimRam();
+            else if (pattern == Pattern.FlameDash) AimFlameDash();
+            else if (pattern == Pattern.RewindDash) AimRewindDash();
             else if (pattern == Pattern.Judgment) BeginJudgment();
+        }
+
+        /// <summary>
+        /// 그쪽으로 speed로 seconds 동안 달리면 어디까지 가는지 어림한다. 벽이나 낭떠러지에서 멈춘다.
+        /// 달려갈 길을 미리 그릴 때 쓴다.
+        /// </summary>
+        private float DashReach(int direction, float speed, float seconds)
+        {
+            float maxDistance = speed * seconds;
+            float feet = _body.position.y - _size.y * 0.5f;
+            float halfWidth = _size.x * 0.5f;
+            const float step = 0.25f;
+            for (float distance = 0f; distance < maxDistance; distance += step)
+            {
+                float center = _body.position.x + direction * distance;
+                if (Combat.IsSolidAt(new Vector2(center + direction * (halfWidth + 0.3f), _body.position.y))) return distance;
+                if (!Combat.IsSolidAt(new Vector2(center + direction * (halfWidth + 0.35f), feet - 0.3f))) return distance;
+            }
+            return maxDistance;
+        }
+
+        /// <summary>몸 앞에서 distance만큼 달려갈 길을 바닥에 그린다.</summary>
+        private void ShowDashPath(int direction, float distance, float seconds, Color color)
+        {
+            Vector2 front = _body.position + new Vector2(direction * _size.x * 0.5f, 0f);
+            PathMarker.Lane(front, front + new Vector2(direction * distance, 0f), _size.y, seconds, color);
         }
 
         /// <summary>예고가 끝났다. 공격을 시작한다. 돌려주는 값은 이번 틱의 가로 속도다.</summary>
@@ -317,6 +346,11 @@ namespace SteamGame.Prototype
             float airTime = 2f * jumpSpeed / gravity * 0.85f;
             _slamVelocityX = Mathf.Clamp(toPlayer.x / airTime, -12f, 12f);
             _body.linearVelocity = new Vector2(_slamVelocityX, jumpSpeed);
+
+            // 떨어질 자리에 고리를 그린다. 플레이어가 있던 높이로 떨어진다고 어림한다.
+            float landX = _body.position.x + _slamVelocityX * airTime;
+            float landY = Mathf.Abs(toPlayer.y) > 1f ? _player.Feet.y : _body.position.y - _size.y * 0.5f;
+            PathMarker.Landing(new Vector2(landX, landY), _size.x * 0.5f + 1.2f, airTime, LeapMarkColor);
             _airTime = 0f;
             Enter(State.Attack, 3f);
             return _slamVelocityX;

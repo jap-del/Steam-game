@@ -226,7 +226,8 @@ namespace SteamGame.Prototype
     }
 
     /// <summary>
-    /// 백광의 군주가 내리는 빛기둥. 먼저 희미한 기둥으로 떨어질 자리를 보여 주고, 잠시 뒤 밝게 내리꽂는다.
+    /// 백광의 군주가 내리는 빛기둥. 먼저 테두리만 있는 희미한 기둥으로 떨어질 자리를 보여 주고,
+    /// 안쪽 빛줄기가 기둥 너비만큼 굵어지면 밝게 내리꽂는다.
     /// 내리꽂는 순간 기둥 안에 있으면 피해를 입는다. 대시로 통과할 수 있다.
     /// </summary>
     public sealed class LightPillar : MonoBehaviour
@@ -235,20 +236,46 @@ namespace SteamGame.Prototype
         private const float ActiveTime = 0.3f;
         private const float Height = 30f;
 
+        private static readonly Color WarnColor = new Color(1f, 0.95f, 0.6f, 1f);
+        private static readonly Color HotColor = new Color(1f, 0.98f, 0.82f, 1f);
+
         private PlayerController _player;
-        private SpriteRenderer _renderer;
+        private SpriteRenderer _fill;
+        private SpriteRenderer _charge;
+        private SpriteRenderer _left;
+        private SpriteRenderer _right;
+        private SpriteRenderer _floor;
+        private SpriteRenderer _core;
+        private SpriteRenderer _glow;
         private float _warn;
+        private float _warnTime;
         private float _active;
         private bool _fired;
         private bool _hitDone;
 
         public static void Spawn(Transform parent, PlayerController player, float x, float warnTime)
         {
-            SpriteRenderer renderer = PrototypeArt.CreateBox("LightPillar", parent, new Vector2(x, StageBuilder.GroundTop + Height * 0.5f - 4f), new Vector2(HalfWidth * 2f, Height), new Color(1f, 0.95f, 0.6f, 0.14f), 4);
-            var pillar = renderer.gameObject.AddComponent<LightPillar>();
+            var go = new GameObject("LightPillar");
+            go.transform.SetParent(parent, false);
+            go.transform.position = new Vector3(x, StageBuilder.GroundTop + Height * 0.5f - 4f, 0f);
+            var pillar = go.AddComponent<LightPillar>();
             pillar._player = player;
-            pillar._renderer = renderer;
             pillar._warn = warnTime;
+            pillar._warnTime = Mathf.Max(0.01f, warnTime);
+
+            Transform root = go.transform;
+            var size = new Vector2(HalfWidth * 2f, Height);
+            pillar._fill = PrototypeArt.CreateBox("Fill", root, Vector2.zero, size, HazardArt.WithAlpha(WarnColor, 0f), 4);
+            pillar._charge = PrototypeArt.CreateBox("Charge", root, Vector2.zero, size, HazardArt.WithAlpha(WarnColor, 0f), 4);
+            pillar._left = PrototypeArt.CreateBox("EdgeLeft", root, new Vector2(-HalfWidth + 0.03f, 0f), new Vector2(0.06f, Height), HazardArt.WithAlpha(WarnColor, 0f), 5);
+            pillar._right = PrototypeArt.CreateBox("EdgeRight", root, new Vector2(HalfWidth - 0.03f, 0f), new Vector2(0.06f, Height), HazardArt.WithAlpha(WarnColor, 0f), 5);
+            // 기둥이 꽂힐 바닥에 빛 웅덩이를 둔다.
+            Vector2 floor = new Vector2(x, StageBuilder.GroundTop + 0.05f);
+            pillar._floor = RaidArt.Create("Floor", root, floor, new Vector2(HalfWidth * 3.2f, 0.45f), RaidArt.Disc, HazardArt.WithAlpha(WarnColor, 0f), 4);
+            pillar._glow = HazardArt.Create("Glow", root, Vector2.zero, new Vector2(HalfWidth * 5f, Height), HazardArt.Soft, HazardArt.WithAlpha(HotColor, 0f), 4);
+            pillar._core = PrototypeArt.CreateBox("Core", root, Vector2.zero, new Vector2(HalfWidth * 2.4f, Height), HazardArt.WithAlpha(HotColor, 0f), 5);
+            pillar._glow.enabled = false;
+            pillar._core.enabled = false;
         }
 
         private void Update()
@@ -256,18 +283,29 @@ namespace SteamGame.Prototype
             if (!_fired)
             {
                 _warn -= Time.deltaTime;
-                // 떨어지기 직전에는 더 진하게 깜빡인다.
-                float pulse = _warn < 0.3f && Mathf.FloorToInt(Time.time * 16f) % 2 == 0 ? 0.32f : 0.16f;
-                _renderer.color = new Color(1f, 0.95f, 0.6f, pulse);
+                float progress = 1f - Mathf.Clamp01(_warn / _warnTime);
+                float appear = Mathf.Clamp01((_warnTime - _warn) / 0.1f);
+                // 떨어지기 직전에는 테두리가 하얗게 깜빡인다.
+                bool blink = _warn < 0.3f && Mathf.FloorToInt(Time.time * 16f) % 2 == 0;
+                Color edge = blink ? Color.white : WarnColor;
+                _fill.color = HazardArt.WithAlpha(WarnColor, 0.07f * appear);
+                _charge.transform.localScale = new Vector3(Mathf.Max(0.02f, HalfWidth * 2f * progress), Height, 1f);
+                _charge.color = HazardArt.WithAlpha(WarnColor, (0.12f + 0.2f * progress) * appear);
+                _left.color = HazardArt.WithAlpha(edge, (blink ? 0.95f : 0.6f) * appear);
+                _right.color = HazardArt.WithAlpha(edge, (blink ? 0.95f : 0.6f) * appear);
+                _floor.color = HazardArt.WithAlpha(WarnColor, (0.2f + 0.3f * progress) * appear);
                 if (_warn > 0f) return;
 
                 _fired = true;
                 _active = ActiveTime;
-                transform.localScale = new Vector3(HalfWidth * 2.4f, Height, 1f);
-                _renderer.color = new Color(1f, 0.98f, 0.82f, 0.9f);
+                _fill.enabled = false;
+                _charge.enabled = false;
+                _core.enabled = true;
+                _glow.enabled = true;
                 Sfx.Play(Sound.Beam, 0.8f);
                 PrototypeGame game = PrototypeGame.Current;
                 if (game != null && game.Feel != null) game.Feel.Shake(0.06f, 0.08f);
+                if (game != null) game.ShowBlast(new Vector2(transform.position.x, StageBuilder.GroundTop + 0.2f), HalfWidth * 1.8f, HazardArt.WithAlpha(HotColor, 0.6f));
             }
 
             if (!_hitDone && _player != null)
@@ -281,9 +319,14 @@ namespace SteamGame.Prototype
             }
 
             _active -= Time.deltaTime;
-            Color color = _renderer.color;
-            color.a = Mathf.Clamp01(_active / ActiveTime) * 0.9f;
-            _renderer.color = color;
+            float ratio = Mathf.Clamp01(_active / ActiveTime);
+            bool flash = ActiveTime - _active < 0.06f;
+            _core.color = flash ? Color.white : HazardArt.WithAlpha(HotColor, 0.9f * ratio);
+            _core.transform.localScale = new Vector3(HalfWidth * 2.4f * Mathf.Lerp(0.85f, 1f, ratio), Height, 1f);
+            _glow.color = HazardArt.WithAlpha(HotColor, 0.4f * ratio);
+            _left.color = HazardArt.WithAlpha(Color.white, 0.8f * ratio);
+            _right.color = HazardArt.WithAlpha(Color.white, 0.8f * ratio);
+            _floor.color = HazardArt.WithAlpha(HotColor, 0.7f * ratio);
             if (_active <= 0f) Destroy(gameObject);
         }
     }

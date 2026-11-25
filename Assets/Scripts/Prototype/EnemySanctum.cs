@@ -88,6 +88,8 @@ namespace SteamGame.Prototype
         private float _downTimer;
         private float _moonStepCooldown;
         private float _flameTrailTimer;
+        /// <summary>불꽃 질주를 예고할 때 정한 방향. 예고 중에 플레이어가 넘어가도 바뀌지 않는다.</summary>
+        private int _flameDirection = 1;
         private SpriteRenderer _tether;
 
         private bool _armored;
@@ -245,9 +247,18 @@ namespace SteamGame.Prototype
             _tether.color = color;
         }
 
+        /// <summary>달려갈 방향을 정하고 불길이 지나갈 길을 바닥에 그린다.</summary>
+        private void AimFlameDash()
+        {
+            _flameDirection = _player.Position.x >= _body.position.x ? 1 : -1;
+            _facing = _flameDirection;
+            float reach = DashReach(_flameDirection, FlameDashSpeed, FlameDashTime);
+            ShowDashPath(_flameDirection, reach, WindupFor(Pattern.FlameDash), FlameColor);
+        }
+
         private float StartFlameDash(Vector2 toPlayer)
         {
-            _facing = toPlayer.x >= 0f ? 1 : -1;
+            _facing = _flameDirection;
             _flameTrailTimer = 0f;
             Enter(State.Attack, FlameDashTime);
             Sfx.Play(Sound.Dash);
@@ -306,6 +317,9 @@ namespace SteamGame.Prototype
                 var direction = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
                 Projectile shot = _game.SpawnShot(_body.position, direction * CrescentSpeed, 0.55f, MoonColor);
                 if (shot != null) shot.SetAcceleration(-direction * CrescentReturn);
+                // 초승달이 가장 멀리 날아갈 자리까지 줄을 긋는다. 그 뒤 같은 줄로 되돌아온다.
+                float farthest = CrescentSpeed * CrescentSpeed / (2f * CrescentReturn);
+                PathMarker.Aim(_body.position, _body.position + direction * farthest, 0.45f, MoonColor);
             }
             Sfx.Play(Sound.Shoot, 0.8f);
         }
@@ -454,6 +468,7 @@ namespace SteamGame.Prototype
                 var from = new Vector2(target.x + i * 2.4f, StageBuilder.GroundTop + 10f);
                 Vector2 direction = (target - from).normalized;
                 _game.SpawnShot(from, direction * SpearSpeed, 0.45f, SpearColor);
+                PathMarker.Aim(from, target + direction * 3f, 0.4f, SpearColor);
             }
             Sfx.Play(Sound.Beam, 0.6f);
         }
