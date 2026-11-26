@@ -201,9 +201,12 @@ namespace SteamGame.Prototype
             _cooldown = Random.Range(0.4f, 1.4f);
 
             _sprite = PrototypeArt.CreateBox("Body", transform, Vector2.zero, _size, _baseColor, 8);
-            PixelSprites.Dress(_sprite, kind.ToString(), _size);
+            // 움직이는 그림 판이 있으면 그것을, 없으면 예전 픽셀 그림을 쓴다.
+            _rig = PixelRig.Attach(_sprite, kind.ToString(), _size);
+            if (_rig == null) PixelSprites.Dress(_sprite, kind.ToString(), _size);
 
-            float barY = _size.y * 0.5f + 0.3f;
+            // 새 보스 그림은 뿔, 후광, 모자가 몸보다 위로 솟아 있어서 체력 막대를 조금 더 올린다.
+            float barY = _size.y * 0.5f + (_rig != null && IsBoss ? 0.7f : 0.3f);
             PrototypeArt.CreateBox("HealthBack", transform, new Vector2(0f, barY), new Vector2(1.1f, 0.14f), new Color(0f, 0f, 0f, 0.7f), 13);
             _healthFill = PrototypeArt.CreateBox("HealthFill", transform, new Vector2(0f, barY), new Vector2(1f, 0.08f), new Color(0.9f, 0.25f, 0.25f, 1f), 14).transform;
 
@@ -228,6 +231,12 @@ namespace SteamGame.Prototype
             {
                 // 방패가 어느 쪽을 막고 있는지 보여 주는 밝은 막대.
                 _shieldVisual = PrototypeArt.CreateBox("Shield", transform, Vector2.zero, new Vector2(0.16f, _size.y * 0.9f), new Color(0.85f, 0.95f, 1f, 1f), 9);
+                if (_rig != null)
+                {
+                    // 새 그림에는 방패가 그려져 있으므로, 막는 쪽을 알리는 막대는 얇고 은은한 빛으로 둔다.
+                    _shieldVisual.transform.localScale = new Vector3(0.08f, _size.y * 0.8f, 1f);
+                    _shieldVisual.color = new Color(0.8f, 0.95f, 1f, 0.45f);
+                }
             }
 
             BuildRaid();
@@ -243,6 +252,26 @@ namespace SteamGame.Prototype
         {
             PixelSprites.Face(_sprite, _facing);
 
+            if (_rig != null)
+            {
+                UpdateRigLook();
+            }
+            else
+            {
+                UpdateBoxLook();
+            }
+            UpdateRaidVisuals();
+
+            if (_shieldVisual != null)
+            {
+                _shieldVisual.enabled = IsGuarding;
+                _shieldVisual.transform.localPosition = new Vector3(_facing * (_size.x * 0.5f + 0.1f), 0f, 0f);
+            }
+        }
+
+        /// <summary>예전 픽셀 그림일 때의 색. 그림 전체를 신호 색으로 칠한다.</summary>
+        private void UpdateBoxLook()
+        {
             Color color = _baseColor;
             if (_flashTimer > 0f)
             {
@@ -264,13 +293,6 @@ namespace SteamGame.Prototype
                 color = new Color(_baseColor.r * 0.55f, _baseColor.g * 0.55f, _baseColor.b * 0.55f, 1f);
             }
             _sprite.color = RaidTint(color);
-            UpdateRaidVisuals();
-
-            if (_shieldVisual != null)
-            {
-                _shieldVisual.enabled = IsGuarding;
-                _shieldVisual.transform.localPosition = new Vector3(_facing * (_size.x * 0.5f + 0.1f), 0f, 0f);
-            }
         }
 
         private void FixedUpdate()
@@ -645,6 +667,7 @@ namespace SteamGame.Prototype
         {
             _state = state;
             _stateTimer = duration;
+            _stateSerial++;
         }
 
         /// <summary>발 앞쪽에 바닥이 있는지 본다. 없으면 낭떠러지라서 멈춘다.</summary>

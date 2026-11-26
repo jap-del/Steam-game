@@ -117,7 +117,8 @@ namespace SteamGame.Prototype
             Ui.FadeDown(new Rect(0f, 0f, Screen.width, Ui.U(86f)), Ui.Alpha(Ui.Ink, 0.6f));
 
             DrawHealthAndSkills(Ui.U(14f), Ui.U(12f));
-            DrawStageTrack();
+            // 보스와 싸우는 동안에는 가운데 위를 보스 체력 막대가 쓴다.
+            if (_bosses.Count == 0) DrawStageTrack();
             DrawResources();
             if (_bosses.Count == 0 && !MenuOpen) DrawMenuHint();
         }
@@ -728,23 +729,21 @@ namespace SteamGame.Prototype
 
         // ---- 보스 ----
 
-        /// <summary>보스 체력 막대. 화면 아래 가운데에 그린다. 쌍둥이처럼 보스가 둘이면 나란히 그린다.</summary>
+        /// <summary>보스 체력 막대. 화면 위 가운데에 그린다. 쌍둥이처럼 보스가 둘이면 나란히 그린다.</summary>
         private void DrawBossBars()
         {
             if (_bosses.Count == 0) return;
 
+            // 화면 위쪽 가운데. 왼쪽 위 체력과 오른쪽 위 골드를 가리지 않게 양옆을 비운다.
             int count = Mathf.Min(_bosses.Count, _bossTrail.Length);
             float gap = Ui.U(30f);
-            float total = Mathf.Min(Ui.U(580f), Screen.width - Ui.U(60f));
+            float total = Mathf.Min(Ui.U(580f), Screen.width - Ui.U(300f));
             float width = (total - gap * (count - 1)) / count;
             float left = (Screen.width - total) * 0.5f;
             float barHeight = Mathf.Round(Ui.U(9f));
-            float top = Screen.height - Ui.U(26f) - barHeight;
+            float top = Mathf.Round(Ui.U(32f));
 
-            // 막대 뒤를 어둡게 깔아 아래쪽 배경과 떨어뜨린다.
-            Rect shade = new Rect(0f, top - Ui.U(44f), Screen.width, Screen.height - top + Ui.U(44f));
             GUI.color = Color.white;
-            Ui.Fill(new Rect(shade.x, shade.y + shade.height * 0.4f, shade.width, shade.height * 0.6f), Ui.Alpha(Ui.Ink, 0.25f));
             for (int i = 0; i < count; i++)
             {
                 if (_bosses[i] != null) DrawOneBossBar(i, _bosses[i], left + i * (width + gap), top, width, barHeight);

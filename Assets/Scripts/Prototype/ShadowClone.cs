@@ -9,9 +9,15 @@ namespace SteamGame.Prototype
     /// </summary>
     public sealed class ShadowClone : MonoBehaviour
     {
+        /// <summary>새 그림일 때 고정된 분신에 덮는 보랏빛.</summary>
+        private static readonly Color AnchoredGlow = new Color(0.75f, 0.55f, 1f, 0.35f);
+        private const float AttackPoseTime = 0.22f;
+
         private SpriteRenderer _body;
         private SpriteRenderer _slash;
+        private PixelRig _rig;
         private Color _bodyColor;
+        private float _poseTimer;
         private Vector2 _previous;
         private Vector2 _target;
         private float _slashTimer;
@@ -28,8 +34,18 @@ namespace SteamGame.Prototype
             _slashScale = slashScale;
             _bodyColor = new Color(0.45f, 0.25f, 0.85f, alpha);
             _body = PrototypeArt.CreateBox("Body", transform, Vector2.zero, bodySize, _bodyColor, 9);
-            // 분신은 플레이어와 같은 그림을 한 가지 색으로만 칠한 실루엣이다.
-            PixelSprites.Dress(_body, "Player", bodySize, false);
+            // 새 그림이면 플레이어 그림을 보랏빛 그림자 색으로 바꾼 그림 판을 쓰고, 플레이어가 그때 보이던 자세를 따라 한다.
+            _rig = PixelRig.Attach(_body, "PlayerShadow", bodySize);
+            if (_rig != null)
+            {
+                _bodyColor = new Color(1f, 1f, 1f, alpha);
+                _body.color = _bodyColor;
+            }
+            else
+            {
+                // 예전 그림이면 플레이어와 같은 그림을 한 가지 색으로만 칠한 실루엣이다.
+                PixelSprites.Dress(_body, "Player", bodySize, false);
+            }
             _slash = PrototypeArt.CreateBox("Slash", transform, Vector2.zero, Combat.SlashSize * slashScale, new Color(0.7f, 0.5f, 1f, 0.6f), 11);
             PixelSprites.Dress(_slash, "Slash", Combat.SlashSize * slashScale);
             _slash.enabled = false;
@@ -54,6 +70,7 @@ namespace SteamGame.Prototype
             }
             _target = frame.Position;
             PixelSprites.Face(_body, frame.Facing);
+            if (_rig != null && frame.Pose >= 0) _rig.ShowFrame(frame.Pose);
 
             if (frame.Attacked) Attack(frame.Position, frame.Facing, damage);
         }
@@ -65,7 +82,18 @@ namespace SteamGame.Prototype
 
             _anchored = anchored;
             _previous = _target;
-            _body.color = anchored ? new Color(0.75f, 0.55f, 1f, 0.9f) : _bodyColor;
+            if (_rig != null)
+            {
+                // 멈춰 선 동안에는 제자리에서 숨 쉬는 그림을 보여 준다.
+                _body.color = anchored ? new Color(1f, 1f, 1f, 0.95f) : _bodyColor;
+                _rig.SetFlash(anchored ? AnchoredGlow : Color.clear);
+                if (anchored) _rig.Play("idle");
+                _poseTimer = 0f;
+            }
+            else
+            {
+                _body.color = anchored ? new Color(0.75f, 0.55f, 1f, 0.9f) : _bodyColor;
+            }
         }
 
         /// <summary>고정된 분신이 플레이어의 공격에 맞춰 바로 공격한다.</summary>
@@ -73,6 +101,11 @@ namespace SteamGame.Prototype
         {
             if (!_active) return;
             Attack(_target, facing, damage);
+            if (_rig != null)
+            {
+                _rig.Restart("attack");
+                _poseTimer = AttackPoseTime;
+            }
         }
 
         public void MoveTo(Vector2 position)
@@ -106,6 +139,13 @@ namespace SteamGame.Prototype
             {
                 _slashTimer -= Time.deltaTime;
                 if (_slashTimer <= 0f) _slash.enabled = false;
+            }
+
+            if (_poseTimer > 0f)
+            {
+                _poseTimer -= Time.deltaTime;
+                // 고정된 채로 휘두른 뒤에는 다시 제자리 자세로 돌아간다.
+                if (_poseTimer <= 0f && _anchored && _rig != null) _rig.Play("idle");
             }
         }
     }

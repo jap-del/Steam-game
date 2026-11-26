@@ -47,3 +47,6 @@ crashlytics-build.properties
 # OS files
 .DS_Store
 Thumbs.db
+
+# 그림 생성 도구(Tools/ArtGen)의 파이썬 캐시
+__pycache__/

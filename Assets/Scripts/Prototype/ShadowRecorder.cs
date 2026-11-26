@@ -8,12 +8,15 @@ namespace SteamGame.Prototype
         public Vector2 Position;
         public int Facing;
         public bool Attacked;
+        /// <summary>그때 플레이어 그림 판에서 보이던 칸. 분신이 같은 자세를 보여 준다. 예전 그림이면 -1.</summary>
+        public int Pose;
 
-        public ShadowFrame(Vector2 position, int facing, bool attacked)
+        public ShadowFrame(Vector2 position, int facing, bool attacked, int pose = -1)
         {
             Position = position;
             Facing = facing;
             Attacked = attacked;
+            Pose = pose;
         }
     }
 

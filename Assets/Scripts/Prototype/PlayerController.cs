@@ -36,6 +36,11 @@ namespace SteamGame.Prototype
 
         private static readonly Color BodyColor = new Color(0.95f, 0.95f, 1f, 1f);
         private static readonly Color DashColor = new Color(0.5f, 0.85f, 1f, 1f);
+        /// <summary>새 그림일 때 대시 중에 덮는 푸른 빛.</summary>
+        private static readonly Color DashFlash = new Color(0.5f, 0.85f, 1f, 0.45f);
+        /// <summary>공격 그림을 보여 주는 시간. 베기 효과(0.12초)보다 조금 길다.</summary>
+        private const float AttackPoseTime = 0.22f;
+        private const float HurtPoseTime = 0.3f;
 
         private readonly List<ShadowSlot> _shadows = new List<ShadowSlot>();
         private readonly ContactPoint2D[] _contacts = new ContactPoint2D[8];
@@ -54,6 +59,10 @@ namespace SteamGame.Prototype
         private BoxCollider2D _collider;
         private SpriteRenderer _sprite;
         private SpriteRenderer _slash;
+        private PixelRig _rig;
+        private float _attackPoseTimer;
+        private float _hurtPoseTimer;
+        private bool _grounded;
 
         private float _moveInput;
         private int _facing = 1;
@@ -93,7 +102,9 @@ namespace SteamGame.Prototype
             _lastSafePosition = transform.position;
 
             _sprite = PrototypeArt.CreateBox("Body", transform, Vector2.zero, BodySize, BodyColor, 10);
-            PixelSprites.Dress(_sprite, "Player", BodySize);
+            // 움직이는 그림 판이 있으면 그것을, 없으면 예전 픽셀 그림을 쓴다.
+            _rig = PixelRig.Attach(_sprite, "Player", BodySize);
+            if (_rig == null) PixelSprites.Dress(_sprite, "Player", BodySize);
             _slash = PrototypeArt.CreateBox("Slash", transform, Vector2.zero, Combat.SlashSize, new Color(1f, 1f, 1f, 0.7f), 12);
             PixelSprites.Dress(_slash, "Slash", Combat.SlashSize);
             _slash.enabled = false;
@@ -256,7 +267,14 @@ namespace SteamGame.Prototype
                 if (_slashTimer <= 0f) _slash.enabled = false;
             }
 
-            _sprite.color = _dashTimer > 0f ? DashColor : BodyColor;
+            if (_rig != null)
+            {
+                UpdateRigLook();
+            }
+            else
+            {
+                _sprite.color = _dashTimer > 0f ? DashColor : BodyColor;
+            }
             PixelSprites.Face(_sprite, _facing);
 
             if (_invulnerableTimer > 0f)
@@ -402,7 +420,33 @@ namespace SteamGame.Prototype
             PixelSprites.Face(_slash, _facing);
             _slash.enabled = true;
             _slashTimer = 0.12f;
+
+            _attackPoseTimer = AttackPoseTime;
+            if (_rig != null) _rig.Restart("attack");
         }
+
+        /// <summary>새 그림일 때 지금 하는 행동에 맞는 움직임을 고른다. 대시 중에는 푸르게 빛난다.</summary>
+        private void UpdateRigLook()
+        {
+            if (_attackPoseTimer > 0f) _attackPoseTimer -= Time.deltaTime;
+            if (_hurtPoseTimer > 0f) _hurtPoseTimer -= Time.deltaTime;
+
+            _sprite.color = Color.white;
+            _rig.SetFlash(_dashTimer > 0f ? DashFlash : Color.clear);
+
+            Vector2 velocity = _body.linearVelocity;
+            string clip;
+            if (_hurtPoseTimer > 0f) clip = "hurt";
+            else if (_dashTimer > 0f) clip = "dash";
+            else if (_attackPoseTimer > 0f) clip = "attack";
+            else if (!_grounded) clip = velocity.y > 0.5f ? "jump" : "fall";
+            else if (Mathf.Abs(velocity.x) > 0.3f) clip = "run";
+            else clip = "idle";
+            _rig.Play(clip);
+        }
+
+        /// <summary>분신이 같은 그림을 따라 할 수 있게 지금 보이는 그림 칸을 알려 준다. 예전 그림이면 -1.</summary>
+        private int PoseFrame => _rig != null ? _rig.Frame : -1;
 
         private void TrySwap()
         {
@@ -447,6 +491,7 @@ namespace SteamGame.Prototype
 
             bool onGlass;
             bool grounded = IsGrounded(out onGlass);
+            _grounded = grounded;
             if (_dropRequested)
             {
                 _dropRequested = false;
@@ -508,7 +553,7 @@ namespace SteamGame.Prototype
             _body.linearVelocity = velocity;
 
             // 지금 상태를 기록하고, 지연 시간만큼 과거의 상태를 분신에게 재현시킨다.
-            var current = new ShadowFrame(_body.position, _facing, _attackedThisTick);
+            var current = new ShadowFrame(_body.position, _facing, _attackedThisTick, PoseFrame);
             _attackedThisTick = false;
             float shadowDamage = _stats.PlayerDamage * _stats.ShadowDamageMultiplier;
             for (int i = 0; i < _shadows.Count; i++)
@@ -657,6 +702,7 @@ namespace SteamGame.Prototype
             _health -= amount;
             _invulnerableTimer = InvulnerableTime;
             _knockbackTimer = 0.2f;
+            _hurtPoseTimer = HurtPoseTime;
             float direction = _body.position.x >= sourceX ? 1f : -1f;
             _body.linearVelocity = new Vector2(direction * 6f, 7f);
             _game.ShowPopup(_body.position + Vector2.up * 1.2f, "-" + amount, new Color(1f, 0.4f, 0.4f, 1f));
