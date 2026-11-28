@@ -120,9 +120,13 @@ namespace SteamGame.Prototype
             if (clip != null) _source.PlayOneShot(clip, Mathf.Clamp01(volume) * MasterVolume);
         }
 
-        /// <summary>보스전 음악: 낮게 깔리는 음과 심장 박동. 보스가 분노하면 빨라진다.</summary>
+        /// <summary>
+        /// 보스전 음악. 음악 파일이 있으면 MusicPlayer가 튼다(북, 금관, 합창). 없으면 예전처럼
+        /// 낮게 깔리는 음과 심장 박동을 만들어 틀고, 보스가 분노하면 빨라진다.
+        /// </summary>
         public static void StartBossMusic()
         {
+            if (MusicPlayer.Play(MusicTrack.Boss, 0f)) return;
             if (_music == null) return;
 
             if (_musicClip == null) _musicClip = BuildMusic();
@@ -134,11 +138,13 @@ namespace SteamGame.Prototype
 
         public static void SetBossMusicEnraged(bool enraged)
         {
+            if (MusicPlayer.SetBossRage(enraged)) return;
             if (_music != null) _music.pitch = enraged ? 1.2f : 1f;
         }
 
         public static void StopBossMusic()
         {
+            MusicPlayer.StopBoss(1.5f);
             if (_music != null) _music.Stop();
         }
 

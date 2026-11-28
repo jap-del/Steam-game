@@ -23,9 +23,31 @@ namespace SteamGame.Prototype
         private PixelRig _rig;
         private int _stateSerial;
         private int _rigSerial = -1;
+        /// <summary>보스 등장 연출 동안 보여 줄 움직임. null이면 평소대로 상태를 따른다.</summary>
+        private string _introPose;
+        private Color _introGlow;
+
+        /// <summary>
+        /// 보스 등장 연출에서 자세를 정한다. 게임이 멈춰 있어도 실제 시간으로 움직이고, glow 색의 빛을 덮는다.
+        /// clip이 null이면 평소로 돌아간다. 예전 그림이면 아무것도 하지 않는다.
+        /// </summary>
+        public void SetIntroPose(string clip, Color glow)
+        {
+            _introPose = clip;
+            _introGlow = glow;
+            if (_rig != null) _rig.UnscaledTime = clip != null;
+        }
 
         private void UpdateRigLook()
         {
+            if (_introPose != null)
+            {
+                _sprite.color = PhaseTint();
+                _rig.SetFlash(_introGlow);
+                _rig.Play(_introPose);
+                return;
+            }
+
             Color tint = PhaseTint();
             Color flash = Color.clear;
             if (_flashTimer > 0f)

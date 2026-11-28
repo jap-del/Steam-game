@@ -33,6 +33,25 @@ namespace SteamGame.Prototype
 
         // ---- 화면 표시에 쓰는 정보 ----
 
+        /// <summary>보스 등장 연출에서 이름 아래에 뜨는 한 줄. 분위기만 전하고 기믹의 풀이는 담지 않는다.</summary>
+        public string BossEpithet
+        {
+            get
+            {
+                switch (Kind)
+                {
+                    case EnemyKind.MidBoss: return "무너진 성문을 홀로 지키는 철갑";
+                    case EnemyKind.Boss: return "천 년의 봉인을 지키는 자";
+                    case EnemyKind.TwinSun: return "꺼지지 않는 한낮";
+                    case EnemyKind.TwinMoon: return "저물지 않는 한밤";
+                    case EnemyKind.LightLord: return "성소를 비추는 하얀 왕";
+                    case EnemyKind.ClockKnight: return "녹슬지 않는 태엽의 칼날";
+                    case EnemyKind.ClockMaster: return "멈춘 시계탑의 마지막 주인";
+                    default: return "";
+                }
+            }
+        }
+
         /// <summary>보스 이름. 등장 연출과 체력 막대에 쓴다.</summary>
         public string BossName
         {

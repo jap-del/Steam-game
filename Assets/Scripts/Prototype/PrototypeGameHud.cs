@@ -76,6 +76,14 @@ namespace SteamGame.Prototype
 
             Ui.Begin();
 
+            // 메인 화면에서는 게임 화면 글자를 그리지 않는다.
+            if (OnTitle)
+            {
+                DrawMenu();
+                GUI.color = Color.white;
+                return;
+            }
+
             // 보스전의 어두운 화면 가장자리. 글자보다 먼저 그려서 글자를 가리지 않게 한다.
             Feel.DrawVignette();
 
@@ -859,44 +867,80 @@ namespace SteamGame.Prototype
         {
             float now = _introAge;
             // 검은 띠가 위아래에서 들어왔다가 끝날 때 다시 나간다.
-            float slide = Mathf.Clamp01(now / 0.3f) * Mathf.Clamp01((IntroDuration - now) / 0.3f);
+            float slide = Mathf.Clamp01(now / 0.35f) * Mathf.Clamp01((IntroDuration - now) / 0.35f);
             float eased = 1f - (1f - slide) * (1f - slide);
-            float bar = Mathf.Round(Screen.height * 0.13f * eased);
+            float bar = Mathf.Round(Screen.height * 0.14f * eased);
             float edge = Mathf.Max(1f, Mathf.Round(Ui.U(1f)));
+
+            // 심장 박동: 박동마다 화면이 붉게 조였다가 풀린다. 이름이 뜨기 전까지만.
+            float pulse = 0f;
+            for (int i = 0; i < IntroHeartbeats.Length; i++)
+            {
+                float since = now - IntroHeartbeats[i];
+                if (since >= 0f) pulse = Mathf.Max(pulse, Mathf.Exp(-since * 7f));
+            }
+            if (now >= IntroTitleAt) pulse = 0f;
+            float build = Mathf.Clamp01(now / IntroTitleAt);
+            if (now < IntroTitleAt) Ui.Fill(new Rect(0f, 0f, Screen.width, Screen.height), new Color(0.35f, 0f, 0.02f, 0.18f * pulse + 0.1f * build));
+
             Ui.Fill(new Rect(0f, 0f, Screen.width, bar), Color.black);
             Ui.Fill(new Rect(0f, Screen.height - bar, Screen.width, bar), Color.black);
-            Ui.Band(new Rect(0f, bar, Screen.width, edge), Ui.Alpha(_introColor, 0.8f * slide));
-            Ui.Band(new Rect(0f, Screen.height - bar - edge, Screen.width, edge), Ui.Alpha(_introColor, 0.8f * slide));
+            float bandAlpha = (0.55f + 0.45f * pulse) * slide;
+            Ui.Band(new Rect(0f, bar, Screen.width, edge * (1f + 2f * pulse)), Ui.Alpha(_introColor, bandAlpha));
+            Ui.Band(new Rect(0f, Screen.height - bar - edge * (1f + 2f * pulse), Screen.width, edge * (1f + 2f * pulse)), Ui.Alpha(_introColor, bandAlpha));
+
+            float cx = Screen.width * 0.5f;
+            float cy = Screen.height * 0.42f;
 
             if (_introTitleShown)
             {
                 float since = now - IntroTitleAt;
                 float alpha = Mathf.Clamp01((IntroDuration - now) / 0.3f);
                 float appear = 1f - Mathf.Pow(1f - Mathf.Clamp01(since / 0.35f), 3f);
-                float cx = Screen.width * 0.5f;
-                float cy = Screen.height * 0.4f;
 
-                Ui.Band(new Rect(0f, cy - Ui.U(46f), Screen.width, Ui.U(96f)), Ui.Alpha(Ui.Ink, 0.7f * alpha));
-                Ui.Glow(new Rect(cx - Ui.U(200f), cy - Ui.U(40f), Ui.U(400f), Ui.U(80f)), Ui.Alpha(_introColor, 0.25f * alpha * appear));
+                // 타격 순간 화면 가운데에서 빛줄기가 사방으로 뻗는다.
+                DrawImpactLines(cx, cy, since);
+
+                Ui.Band(new Rect(0f, cy - Ui.U(52f), Screen.width, Ui.U(112f)), Ui.Alpha(Ui.Ink, 0.75f * alpha));
+                Ui.Glow(new Rect(cx - Ui.U(240f), cy - Ui.U(48f), Ui.U(480f), Ui.U(96f)), Ui.Alpha(_introColor, (0.22f + 0.25f * (1f - appear)) * alpha));
 
                 string title = Spaced(_introTitle);
                 GUIStyle titleStyle = Ui.Style(34f, true, TextAnchor.MiddleCenter);
                 Vector2 titleSize = Ui.Measure(title, titleStyle);
+                var titleRect = new Rect(cx - titleSize.x * 0.5f - Ui.U(10f), cy - titleSize.y * 0.5f, titleSize.x + Ui.U(20f), titleSize.y);
+
+                // 이름의 큰 잔상이 퍼지며 사라진다.
+                float echo = Mathf.Clamp01(since / 0.6f);
+                if (echo < 1f)
+                {
+                    Matrix4x4 before = GUI.matrix;
+                    float echoScale = 1f + 0.9f * echo;
+                    GUIUtility.ScaleAroundPivot(new Vector2(echoScale, echoScale), new Vector2(cx, cy));
+                    Ui.Label(titleRect, title, titleStyle, Ui.Alpha(_introColor, 0.35f * (1f - echo) * alpha), 0f);
+                    GUI.matrix = before;
+                }
 
                 // 이름이 크게 나타났다가 제 크기로 줄어든다.
                 float pop = 1f + 0.35f * (1f - Mathf.Clamp01(since / 0.15f));
                 Matrix4x4 previous = GUI.matrix;
                 if (pop > 1.001f) GUIUtility.ScaleAroundPivot(new Vector2(pop, pop), new Vector2(cx, cy));
-                Ui.Label(new Rect(cx - titleSize.x * 0.5f - Ui.U(10f), cy - titleSize.y * 0.5f, titleSize.x + Ui.U(20f), titleSize.y), title, titleStyle, Ui.Alpha(_introColor, alpha), 1.5f);
+                Ui.Label(titleRect, title, titleStyle, Ui.Alpha(_introColor, alpha), 1.5f);
                 GUI.matrix = previous;
 
                 // 이름 양옆으로 선이 뻗는다.
-                float lineLength = Ui.U(120f) * appear;
+                float lineLength = Ui.U(140f) * appear;
                 float lineY = Mathf.Round(cy);
                 Ui.Fill(new Rect(cx - titleSize.x * 0.5f - Ui.U(18f) - lineLength, lineY, lineLength, edge * 2f), Ui.Alpha(_introColor, 0.85f * alpha));
                 Ui.Fill(new Rect(cx + titleSize.x * 0.5f + Ui.U(18f), lineY, lineLength, edge * 2f), Ui.Alpha(_introColor, 0.85f * alpha));
 
                 Ui.Text(cx, cy - titleSize.y * 0.5f - Ui.U(8f), Spaced(_introSubtitle), 10f, Ui.Alpha(Ui.TextColor, 0.85f * alpha * appear), true, TextAnchor.LowerCenter);
+
+                // 이름 아래 한 줄이 한 글자씩 써진다.
+                if (!string.IsNullOrEmpty(_introEpithet) && since > 0.35f)
+                {
+                    int shown = Mathf.Min(_introEpithet.Length, Mathf.FloorToInt((since - 0.35f) * 22f) + 1);
+                    Ui.Text(cx, cy + titleSize.y * 0.5f + Ui.U(10f), _introEpithet.Substring(0, shown), 11f, Ui.Alpha(Ui.TextDim, 0.95f * alpha), false, TextAnchor.UpperCenter);
+                }
             }
 
             if (now >= IntroSkipAfter)
@@ -911,6 +955,30 @@ namespace SteamGame.Prototype
                 x += Ui.Keycap(x, y, "Space", keyHeight, alpha) + Ui.U(5f);
                 Ui.Text(x, y + keyHeight * 0.5f, label, 9f, Ui.Alpha(Ui.TextColor, alpha), false, TextAnchor.MiddleLeft);
             }
+        }
+
+        /// <summary>보스 이름이 뜨는 순간 화면 가운데에서 사방으로 뻗어 나가는 빛줄기. since는 타격 뒤 지난 초.</summary>
+        private void DrawImpactLines(float cx, float cy, float since)
+        {
+            const float Life = 0.55f;
+            if (since < 0f || since > Life) return;
+
+            float t = since / Life;
+            float fadeOut = 1f - t;
+            float reach = Mathf.Max(Screen.width, Screen.height) * 0.75f;
+            float thick = Mathf.Max(2f, Mathf.Round(Ui.U(3f)));
+            Matrix4x4 previous = GUI.matrix;
+            for (int i = 0; i < 28; i++)
+            {
+                // 줄마다 각도와 길이를 조금씩 다르게 해서 고르지 않게 보이게 한다.
+                float angle = i * (360f / 28f) + Mathf.Sin(i * 12.9898f) * 6f;
+                float length = reach * (0.35f + 0.25f * Mathf.Abs(Mathf.Sin(i * 78.233f)));
+                float inner = Ui.U(60f) + reach * 0.5f * t;
+                GUI.matrix = previous;
+                GUIUtility.RotateAroundPivot(angle, new Vector2(cx, cy));
+                Ui.Fill(new Rect(cx + inner, cy - thick * 0.5f, length * fadeOut, thick), Ui.Alpha(i % 3 == 0 ? Color.white : _introColor, 0.55f * fadeOut));
+            }
+            GUI.matrix = previous;
         }
 
         /// <summary>보스 기믹의 표시: 표식의 남은 초, 시계 감옥과 심판과 역행까지의 카운트다운.</summary>

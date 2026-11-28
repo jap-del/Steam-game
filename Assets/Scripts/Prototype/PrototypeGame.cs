@@ -15,6 +15,8 @@ namespace SteamGame.Prototype
     /// 중간 보스방과 보스방에 들어가면 짧은 등장 연출이 나온 뒤에 싸움이 시작된다.
     /// 보스는 풀어야 할 기믹이 있다(EnemyCitadel.cs, EnemySanctum.cs, EnemyClock.cs). 기믹의 풀이나 힌트는 화면에 띄우지 않는다.
     /// 한 판은 세 스테이지다. 3-6의 시계탑의 주인을 쓰러뜨리고 문으로 나가면 클리어 화면이 나오고 첫 거점으로 돌아간다.
+    /// Play를 누르면 메인 화면(PrototypeGameTitle.cs)이 먼저 뜨고, 새 게임이나 이어하기를 고른다.
+    /// 판의 진행은 방에 들어갈 때마다 저장된다(RunSave.cs). 방은 판의 씨앗으로 만들어서 이어해도 같은 방이 나온다.
     /// </summary>
     public sealed partial class PrototypeGame : MonoBehaviour
     {
@@ -42,12 +44,20 @@ namespace SteamGame.Prototype
         /// <summary>그림자 조각으로 내는 값: 거점의 제단에서 강화 하나, 상점의 마지막 물건.</summary>
         private const int AltarPrice = 12;
         private const int ShopShardPrice = 8;
-        /// <summary>보스 등장 연출의 길이(초)와 그 안의 순서. 실제 시간 기준이다.</summary>
-        private const float IntroDuration = 2.4f;
+        /// <summary>
+        /// 보스 등장 연출의 길이(초)와 그 안의 순서. 실제 시간 기준이고, 등장 효과음(Sting_BossIntro)과 박자가 맞는다.
+        /// 심장 박동이 빨라지며 땅이 울리고 카메라가 보스에게 다가간다. 보스가 힘을 모았다가 IntroTitleAt에
+        /// 큰 타격과 함께 이름이 뜬다. IntroReturnAt에 카메라가 돌아오고, 북이 몰아친 뒤 싸움이 시작된다.
+        /// </summary>
+        private const float IntroDuration = 3.8f;
         private const float IntroSkipAfter = 0.3f;
-        private const float IntroTitleAt = 1f;
-        private const float IntroReturnAt = 1.8f;
-        private const float IntroPanSmoothing = 3.5f;
+        private const float IntroRoarAt = 1.15f;
+        private const float IntroTitleAt = 1.6f;
+        private const float IntroReturnAt = 3.0f;
+        private const float IntroPanSmoothing = 2.6f;
+        /// <summary>보스에게 다가갈 때의 화면 크기 비율. 작을수록 가까이 간다.</summary>
+        private const float IntroZoom = 0.72f;
+        private static readonly float[] IntroHeartbeats = { 0.15f, 0.7f, 1.15f, 1.45f };
         private const float BossBarFillTime = 0.7f;
 
         private static readonly Color DoorLockedColor = new Color(0.45f, 0.2f, 0.2f, 1f);
@@ -136,7 +146,11 @@ namespace SteamGame.Prototype
         private int _introEndFrame = -1;
         private string _introTitle;
         private string _introSubtitle;
+        private string _introEpithet;
         private Color _introColor;
+        private int _introBeat;
+        private bool _introPunched;
+        private bool _introStingPlaying;
         private bool _bossEnraged;
         private float _bossBarFill;
         private List<Upgrade> _choices;
@@ -155,6 +169,10 @@ namespace SteamGame.Prototype
         private float _clearInputAt;
         private int _clearBonus;
         private bool _clearNewBest;
+        /// <summary>이 판의 씨앗. 방을 만들 때마다 이 값으로 무작위 값을 맞춰서, 이어하면 같은 방이 나온다.</summary>
+        private int _runSeed;
+        /// <summary>이어하기로 다시 만드는 방에 되돌려 놓을 것(팔린 물건, 쓴 제단, 푼 퍼즐). 방을 만든 뒤 비운다.</summary>
+        private RunSaveData _resume;
 
         /// <summary>이번 판의 수치. 강화를 고르면 바뀌고, 죽으면 처음으로 돌아간다.</summary>
         public RunStats Stats { get; private set; }
@@ -210,9 +228,12 @@ namespace SteamGame.Prototype
         private void Start()
         {
             Sfx.Attach(gameObject);
+            MusicPlayer.Attach(gameObject);
             Feel = gameObject.AddComponent<GameFeel>();
             Feel.Init(this);
-            StartRun();
+            // 메인 화면 뒤에는 첫 거점을 깔아 둔다. 저장된 판은 지우지 않는다.
+            StartRun(false);
+            ShowTitle();
         }
 
         private void Update()
@@ -317,10 +338,12 @@ namespace SteamGame.Prototype
 
         /// <summary>
         /// 새 판을 거점에서 시작한다. 판 안의 강화, 골드, 진행은 처음으로 돌아가고
-        /// 그림자 조각과 고른 난이도만 남는다.
+        /// 그림자 조각과 고른 난이도만 남는다. clearSave면 이어하기용 저장도 지운다(죽었거나 새 게임).
         /// </summary>
-        private void StartRun()
+        private void StartRun(bool clearSave = true)
         {
+            if (clearSave) RunSave.Delete();
+
             // 방 번호 0은 거점이다. 첫 거점을 떠난 뒤라면 판을 하던 중에 죽었거나 다시 시작한 것이다.
             if (_runCleared)
             {
@@ -342,12 +365,102 @@ namespace SteamGame.Prototype
             _pendingDifficulty = -1;
             _runCleared = false;
             _runStartTime = Time.time;
+            _runSeed = NewSeed();
+            _resume = null;
             _stage = 1;
             _room = 0;
             _gold = 0;
             _pincers = 0;
             _kills = 0;
             BuildRoom(Stats.MaxHealth);
+        }
+
+        /// <summary>저장해 둔 판을 이어 한다. 저장한 방에 들어온 때부터 다시 시작한다.</summary>
+        private void ResumeRun(RunSaveData data)
+        {
+            MetaProgress.Save();
+            _shards = MetaProgress.Shards;
+            _runShards = data.RunShards;
+            Stats = data.Stats ?? new RunStats();
+            Difficulty.SelectedIndex = data.Difficulty;
+            _difficulty = Difficulty.Selected;
+            _pendingDifficulty = -1;
+            _runCleared = false;
+            _runSeed = data.Seed != 0 ? data.Seed : NewSeed();
+            _runStartTime = Time.time - Mathf.Max(0f, data.Elapsed);
+            _stage = Mathf.Clamp(data.Stage, 1, FinalStage);
+            _room = Mathf.Clamp(data.Room, 0, RoomsPerStage);
+            _gold = Mathf.Max(0, data.Gold);
+            _pincers = data.Pincers;
+            _kills = data.Kills;
+            _lastRunSummary = null;
+            _resume = data;
+            BuildRoom(Mathf.Clamp(data.Health, 1, Stats.MaxHealth));
+        }
+
+        /// <summary>
+        /// 지금 판을 저장한다. 첫 거점에서 난이도 문으로 들어가기 전에는 저장할 판이 없다.
+        /// 방에 들어갈 때와, 상점이나 제단에서 사거나 퍼즐을 풀었을 때 부른다.
+        /// </summary>
+        private void SaveRun()
+        {
+            if (_runCleared || _player == null || (_stage == 1 && _room == 0)) return;
+
+            int sold = 0;
+            for (int i = 0; i < _shopItems.Count && i < 31; i++)
+            {
+                if (_shopItems[i].Sold) sold |= 1 << i;
+            }
+            RunSave.Write(new RunSaveData
+            {
+                Seed = _runSeed,
+                Stage = _stage,
+                Room = _room,
+                RoomKind = _layout != null ? (int)_layout.Type : 0,
+                Health = _player.Health,
+                Gold = _gold,
+                Kills = _kills,
+                Pincers = _pincers,
+                RunShards = _runShards,
+                Difficulty = Difficulty.SelectedIndex,
+                Elapsed = Time.time - _runStartTime,
+                AltarUsed = _altarUsed,
+                PuzzleSolved = _puzzleSolved,
+                SoldMask = sold,
+                Stats = Stats,
+            });
+        }
+
+        /// <summary>이어하기로 다시 만든 방에 저장해 둔 것(팔린 물건, 쓴 제단, 푼 퍼즐)을 되돌려 놓는다.</summary>
+        private void ApplyResume(RunSaveData data)
+        {
+            for (int i = 0; i < _shopItems.Count && i < 31; i++)
+            {
+                if ((data.SoldMask & (1 << i)) == 0) continue;
+                _shopItems[i].Sold = true;
+                if (_shopItems[i].Pedestal != null) _shopItems[i].Pedestal.color = new Color(0.25f, 0.25f, 0.3f, 1f);
+            }
+            if (data.AltarUsed)
+            {
+                _altarUsed = true;
+                if (_altar != null) _altar.color = new Color(0.25f, 0.25f, 0.3f, 1f);
+            }
+            if (data.PuzzleSolved) _puzzleSolved = true;
+        }
+
+        private static int NewSeed()
+        {
+            // 방을 만들 때마다 Random의 씨앗을 맞추므로, 판의 씨앗은 Random이 아니라 시계로 정한다.
+            return (int)(System.DateTime.Now.Ticks & 0x7FFFFFFF) | 1;
+        }
+
+        /// <summary>지금 방의 씨앗. 같은 판의 같은 방은 늘 같은 값이다.</summary>
+        private int RoomSeed()
+        {
+            unchecked
+            {
+                return _runSeed * 31 + _stage * 7919 + _room * 104729;
+            }
         }
 
         /// <summary>방 번호에 따른 방 종류. 다섯 번째 방은 퍼즐방이거나 전투방이다.</summary>
@@ -403,6 +516,8 @@ namespace SteamGame.Prototype
             Feel.SetVignette(BossVignetteColor, 0f);
             Sfx.StopBossMusic();
 
+            // 방의 모양, 적, 상점 물건을 판의 씨앗으로 정한다. 이어해도 같은 방이 나온다.
+            Random.InitState(RoomSeed());
             _root = new GameObject("PrototypeRoom");
             Transform parent = _root.transform;
             bool withDummy = _stage == 1 && _room == 1;
@@ -440,7 +555,30 @@ namespace SteamGame.Prototype
             LinkTwinBosses();
             // 보스방은 등장 연출이 방 이름을 대신한다.
             ResetHudForRoom(_bosses.Count == 0);
+
+            if (_resume != null)
+            {
+                ApplyResume(_resume);
+                _resume = null;
+            }
+            // 싸움 중의 무작위 값은 다시 섞는다.
+            Random.InitState(NewSeed() ^ RoomSeed());
+            SaveRun();
+
             if (_bosses.Count > 0) BeginBossIntro();
+            else MusicPlayer.Play(AreaTrack());
+        }
+
+        /// <summary>보스방이 아닌 방의 배경음악. 거점, 그리고 스테이지마다 다른 곡.</summary>
+        private MusicTrack AreaTrack()
+        {
+            if (_layout != null && _layout.Type == RoomType.Hub) return MusicTrack.Hub;
+            switch (_stage)
+            {
+                case 1: return MusicTrack.Citadel;
+                case 2: return MusicTrack.Sanctum;
+                default: return MusicTrack.Clocktower;
+            }
         }
 
         // ---- 보스 등장 연출 ----
@@ -454,10 +592,13 @@ namespace SteamGame.Prototype
             _introActive = true;
             _introTitleShown = false;
             _introReturned = false;
+            _introPunched = false;
+            _introBeat = 0;
             _introAge = 0f;
             Enemy boss = _bosses[0];
             bool twins = _bosses.Count > 1;
             _introTitle = twins ? "쌍둥이 수문장" : boss.BossName;
+            _introEpithet = twins ? "해와 달, 함께 서는 두 문지기" : boss.BossEpithet;
             _introSubtitle = _stage + "-" + _room + (boss.IsFinalBoss ? (_stage >= FinalStage ? " 마지막 보스" : " 보스") : " 중간 보스");
             _introColor = boss.IsFinalBoss ? new Color(1f, 0.3f, 0.3f, 1f) : new Color(0.95f, 0.5f, 0.85f, 1f);
             if (boss.Kind == EnemyKind.LightLord) _introColor = new Color(1f, 0.9f, 0.55f, 1f);
@@ -469,27 +610,72 @@ namespace SteamGame.Prototype
             {
                 _follow.Smoothing = IntroPanSmoothing;
                 _follow.Target = boss.transform;
+                _follow.ZoomTo(IntroZoom, 1.4f);
             }
-            Feel.SetVignette(BossVignetteColor, 0.55f);
-            Sfx.Play(Sound.BossIntro);
+            Feel.SetVignette(BossVignetteColor, 0.75f);
+            // 배경음악을 끄고 등장 효과음을 튼다. 파일이 없으면 예전 효과음을 쓴다.
+            _introStingPlaying = MusicPlayer.PlayBossSting();
+            if (!_introStingPlaying)
+            {
+                MusicPlayer.Stop(0.4f);
+                Sfx.Play(Sound.BossIntro);
+            }
+            SetBossIntroPose("idle", Color.clear);
         }
 
         private void UpdateBossIntro()
         {
             _introAge += Time.unscaledDeltaTime;
+            float age = _introAge;
 
-            if (!_introTitleShown && _introAge >= IntroTitleAt)
+            if (age < IntroTitleAt && _follow != null)
             {
-                // 이름이 뜨는 순간에 "쿵" 하고 화면이 흔들린다.
-                _introTitleShown = true;
-                Sfx.Play(Sound.BossSlam);
-                Feel.Shake(0.35f, 0.4f);
+                // 다가가는 동안 땅이 점점 크게 울린다.
+                _follow.Shake(Mathf.Lerp(0.015f, 0.08f, age / IntroTitleAt), 0.12f);
+            }
+            while (_introBeat < IntroHeartbeats.Length && age >= IntroHeartbeats[_introBeat])
+            {
+                // 심장 박동마다 화면이 한 번 둥 울린다.
+                _introBeat++;
+                Feel.Shake(0.1f + 0.04f * _introBeat, 0.14f);
+                if (!_introStingPlaying) Sfx.Play(Sound.BossSlam, 0.25f);
             }
 
-            if (!_introReturned && _introAge >= IntroReturnAt)
+            // 보스가 힘을 모았다가(예고 자세), 타격과 함께 크게 휘두른다(공격 자세).
+            if (age >= IntroTitleAt + 1.0f) SetBossIntroPose("idle", Color.clear);
+            else if (age >= IntroTitleAt) SetBossIntroPose("attack", Ui.Alpha(_introColor, 0.75f * (1f - (age - IntroTitleAt) / 1.0f)));
+            else if (age >= IntroRoarAt) SetBossIntroPose("windup", Ui.Alpha(_introColor, 0.65f * (age - IntroRoarAt) / (IntroTitleAt - IntroRoarAt)));
+
+            if (!_introTitleShown && age >= IntroTitleAt)
+            {
+                // 이름이 뜨는 순간: 큰 타격, 강한 흔들림, 보스 색으로 번쩍임, 보스에게서 퍼지는 충격파.
+                _introTitleShown = true;
+                if (!_introStingPlaying) Sfx.Play(Sound.BossSlam);
+                Feel.Shake(0.6f, 0.9f);
+                Feel.Flash(_introColor, 0.45f, 0.5f);
+                for (int i = 0; i < _bosses.Count; i++)
+                {
+                    if (_bosses[i] == null) continue;
+                    ShowBlast(_bosses[i].transform.position, 4f, Ui.Alpha(_introColor, 0.55f), true);
+                    ShowBlast(_bosses[i].transform.position, 7f, Ui.Alpha(_introColor, 0.25f), true);
+                }
+                // 화면이 확 다가갔다가 조금 물러난다.
+                if (_follow != null) _follow.ZoomTo(IntroZoom * 0.86f, 18f);
+            }
+            if (_introTitleShown && !_introPunched && age >= IntroTitleAt + 0.12f)
+            {
+                _introPunched = true;
+                if (_follow != null) _follow.ZoomTo(IntroZoom, 3f);
+            }
+
+            if (!_introReturned && age >= IntroReturnAt)
             {
                 _introReturned = true;
-                if (_follow != null && _player != null) _follow.Target = _player.transform;
+                if (_follow != null && _player != null)
+                {
+                    _follow.Target = _player.transform;
+                    _follow.ZoomTo(1f, 2.4f);
+                }
             }
 
             if (_introAge >= IntroDuration || (_introAge >= IntroSkipAfter && IntroSkipPressed()))
@@ -524,10 +710,22 @@ namespace SteamGame.Prototype
             {
                 _follow.Smoothing = _followSmoothing;
                 if (_player != null) _follow.Target = _player.transform;
+                _follow.ZoomTo(1f, 6f);
             }
-            // 건너뛰었을 때 이름이 뜨는 "쿵"이 빠지지 않게 한다.
+            SetBossIntroPose(null, Color.clear);
+            Feel.SetVignette(BossVignetteColor, 0.55f);
+            // 건너뛰었을 때 이름이 뜨는 "쿵"이 빠지지 않게 하고, 남은 등장 효과음은 빠르게 줄인다.
             if (!_introTitleShown) Sfx.Play(Sound.BossSlam);
+            if (_introStingPlaying && _introAge < IntroDuration - 0.05f) MusicPlayer.FadeBossSting(0.25f);
             Sfx.StartBossMusic();
+        }
+
+        private void SetBossIntroPose(string clip, Color glow)
+        {
+            for (int i = 0; i < _bosses.Count; i++)
+            {
+                if (_bosses[i] != null) _bosses[i].SetIntroPose(clip, glow);
+            }
         }
 
         /// <summary>보스가 다음 단계로 넘어가거나 기믹을 시작했다. 화면이 붉게 번쩍이고 음악이 빨라진다. 풀이는 알려 주지 않는다.</summary>
@@ -687,6 +885,7 @@ namespace SteamGame.Prototype
             }
             // 보스 등장 연출 도중에 방이 바뀌었으면 느려져 있던 카메라를 되돌린다.
             follow.Smoothing = _followSmoothing;
+            follow.ResetZoom(_camera.orthographicSize);
             Feel.SetCamera(follow);
             float halfViewWidth = _camera.orthographicSize * _camera.aspect;
             float minX = halfViewWidth - 1f;
@@ -749,6 +948,8 @@ namespace SteamGame.Prototype
             MetaProgress.Save();
 
             _runCleared = true;
+            // 판이 끝났으니 이어하기용 저장은 지운다.
+            RunSave.Delete();
             _clearInputAt = Time.unscaledTime + 1f;
             Feel.CancelFreeze();
             Feel.SetVignette(BossVignetteColor, 0f);
@@ -812,6 +1013,7 @@ namespace SteamGame.Prototype
                 ShowPopup(_player.Position + Vector2.up * 2.2f, upgrade.Title, new Color(0.6f, 1f, 0.7f, 1f));
             }
             Sfx.Play(Sound.Buy);
+            SaveRun();
         }
 
         // ---- 상점 ----
@@ -914,6 +1116,7 @@ namespace SteamGame.Prototype
             ShowPopup(above, _nearItem.Title + " 구매", new Color(0.6f, 1f, 0.7f, 1f));
             Sfx.Play(Sound.Buy);
             _nearItem = null;
+            SaveRun();
         }
 
         // ---- 거점 ----
@@ -1108,6 +1311,7 @@ namespace SteamGame.Prototype
                 _player.Heal(1);
                 ShowPopup(_player.Position + Vector2.up * 2.2f, "퍼즐 해결! 골드 +" + PuzzleRewardGold + ", 체력 +1", GoldColor);
                 Sfx.Play(Sound.Solve);
+                SaveRun();
             }
         }
 
@@ -1213,11 +1417,14 @@ namespace SteamGame.Prototype
             _popups.Add(new Popup { Position = position, Text = text, Color = color, Age = 0f, Life = PopupLifetime });
         }
 
-        /// <summary>충격파 같은 범위 공격을 잠깐 보여 준다. 번쩍인 원 위로 고리가 퍼져 나간다.</summary>
-        public void ShowBlast(Vector2 center, float radius, Color color)
+        /// <summary>
+        /// 충격파 같은 범위 공격을 잠깐 보여 준다. 번쩍인 원 위로 고리가 퍼져 나간다.
+        /// unscaled면 게임이 멈춰 있어도(보스 등장 연출) 실제 시간으로 퍼진다.
+        /// </summary>
+        public void ShowBlast(Vector2 center, float radius, Color color, bool unscaled = false)
         {
             if (_root == null) return;
-            BlastRing.Spawn(_root.transform, center, radius, color);
+            BlastRing.Spawn(_root.transform, center, radius, color, unscaled);
         }
     }
 }

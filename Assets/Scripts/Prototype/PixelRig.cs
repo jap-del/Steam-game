@@ -24,6 +24,9 @@ namespace SteamGame.Prototype
         /// <summary>지금 보이는 칸. 분신이 플레이어와 같은 칸을 보여 줄 때 쓴다.</summary>
         public int Frame => _frame;
 
+        /// <summary>게임 시간이 멈춰 있어도 움직이게 실제 시간을 쓴다. 보스 등장 연출 동안 켠다.</summary>
+        public bool UnscaledTime { get; set; }
+
         /// <summary>
         /// renderer를 그림 판 sheetName의 움직이는 그림으로 바꾼다. 그림의 발밑이 몸 충돌체(bodySize)의 바닥 가운데에 온다.
         /// 그림 판이 없으면 아무것도 바꾸지 않고 null을 돌려준다.
@@ -125,7 +128,7 @@ namespace SteamGame.Prototype
 
             if (_hasClip && !_manualFrame)
             {
-                _clipTime += Time.deltaTime;
+                _clipTime += UnscaledTime ? Time.unscaledDeltaTime : Time.deltaTime;
                 int step = Mathf.FloorToInt(_clipTime * _clip.Fps);
                 int index = _clip.Loop ? step % _clip.Count : Mathf.Min(step, _clip.Count - 1);
                 _frame = _clip.Start + index;

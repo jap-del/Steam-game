@@ -1,6 +1,7 @@
 namespace SteamGame.Prototype
 {
-    /// <summary>한 판 동안 강화로 바뀌는 수치 모음. 죽으면 처음 값으로 돌아간다.</summary>
+    /// <summary>한 판 동안 강화로 바뀌는 수치 모음. 죽으면 처음 값으로 돌아간다. 이어하기를 위해 통째로 저장한다(RunSave).</summary>
+    [System.Serializable]
     public sealed class RunStats
     {
         public int MaxHealth = 5;

@@ -558,14 +558,18 @@ namespace SteamGame.Prototype
     public sealed class BlastRing : MonoBehaviour
     {
         private const float Life = 0.28f;
+        /// <summary>게임이 멈춘 보스 등장 연출에서 쓰는 고리는 실제 시간으로 더 천천히 퍼진다.</summary>
+        private const float UnscaledLife = 0.65f;
 
         private SpriteRenderer _disc;
         private SpriteRenderer _ring;
         private Color _color;
         private float _radius;
         private float _age;
+        private float _life = Life;
+        private bool _unscaled;
 
-        public static void Spawn(Transform parent, Vector2 center, float radius, Color color)
+        public static void Spawn(Transform parent, Vector2 center, float radius, Color color, bool unscaled = false)
         {
             var go = new GameObject("Blast");
             go.transform.SetParent(parent, false);
@@ -573,6 +577,8 @@ namespace SteamGame.Prototype
             var blast = go.AddComponent<BlastRing>();
             blast._color = color;
             blast._radius = radius;
+            blast._unscaled = unscaled;
+            blast._life = unscaled ? UnscaledLife : Life;
             float diameter = radius * 2f;
             blast._disc = RaidArt.Create("Flash", go.transform, center, new Vector2(diameter, diameter), RaidArt.Disc, color, 7);
             blast._ring = RaidArt.Create("Ring", go.transform, center, new Vector2(diameter, diameter), RaidArt.Ring, Color.white, 8);
@@ -581,8 +587,8 @@ namespace SteamGame.Prototype
 
         private void Update()
         {
-            _age += Time.deltaTime;
-            if (_age >= Life)
+            _age += _unscaled ? Time.unscaledDeltaTime : Time.deltaTime;
+            if (_age >= _life)
             {
                 Destroy(gameObject);
                 return;
@@ -592,7 +598,7 @@ namespace SteamGame.Prototype
 
         private void Apply()
         {
-            float t = Mathf.Clamp01(_age / Life);
+            float t = Mathf.Clamp01(_age / _life);
             float ease = 1f - (1f - t) * (1f - t);
             float diameter = _radius * 2f;
             float ringSize = diameter * Mathf.Lerp(0.6f, 1.12f, ease);

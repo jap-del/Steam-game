@@ -5,8 +5,8 @@ using UnityEngine.InputSystem.Controls;
 namespace SteamGame.Prototype
 {
     /// <summary>
-    /// Esc로 여는 설정 화면. 일시 정지 메뉴(계속하기, 키 설정, 소리, 다시 시작)와
-    /// 키를 보고 바꾸는 키 설정 화면이 있다. 열려 있는 동안 게임은 멈춘다.
+    /// Esc로 여는 설정 화면. 일시 정지 메뉴(계속하기, 키 설정, 소리, 메인 화면으로, 다시 시작)와
+    /// 키를 보고 바꾸는 키 설정 화면이 있다. 메인 화면(PrototypeGameTitle.cs)도 같은 틀을 쓴다. 열려 있는 동안 게임은 멈춘다.
     /// </summary>
     public sealed partial class PrototypeGame
     {
@@ -15,13 +15,16 @@ namespace SteamGame.Prototype
             None,
             Pause,
             Keys,
+            /// <summary>메인 화면. 게임을 켜면 처음 뜬다.</summary>
+            Title,
         }
 
         private const int PauseResume = 0;
         private const int PauseKeys = 1;
         private const int PauseSound = 2;
-        private const int PauseRestart = 3;
-        private const int PauseItemCount = 4;
+        private const int PauseTitle = 3;
+        private const int PauseRestart = 4;
+        private const int PauseItemCount = 5;
         private const float MenuNoteTime = 2.8f;
         private const float MenuConfirmWindow = 3f;
 
@@ -62,6 +65,7 @@ namespace SteamGame.Prototype
             }
 
             if (_menu == MenuScreen.Pause) UpdatePauseMenu();
+            else if (_menu == MenuScreen.Title) UpdateTitleMenu();
             else UpdateKeyMenu();
             return true;
         }
@@ -192,17 +196,18 @@ namespace SteamGame.Prototype
                     CloseMenu();
                     break;
                 case PauseKeys:
-                    _menu = MenuScreen.Keys;
-                    _menuIndex = 0;
-                    _menuColumn = 0;
-                    _menuArmedUntil = 0f;
-                    _menuScreenAt = Time.unscaledTime;
-                    _menuNote = null;
-                    Sfx.Play(Sound.Tick, 0.7f);
+                    OpenKeyMenu(MenuScreen.Pause);
                     break;
                 case PauseSound:
                     Sfx.Muted = !Sfx.Muted;
                     Sfx.Play(Sound.Tick, 0.7f);
+                    break;
+                case PauseTitle:
+                    // 진행은 방에 들어올 때 저장되어 있다. 메인 화면 뒤에는 처음처럼 첫 거점을 깔고, 저장은 지우지 않는다.
+                    CloseMenu();
+                    Feel.CancelFreeze();
+                    StartRun(false);
+                    ShowTitle();
                     break;
                 case PauseRestart:
                     if (Time.unscaledTime <= _menuArmedUntil)
@@ -219,10 +224,32 @@ namespace SteamGame.Prototype
             }
         }
 
+        /// <summary>키 설정 화면을 연다. 뒤로 가면 returnTo(일시 정지 메뉴나 메인 화면)로 돌아간다.</summary>
+        private void OpenKeyMenu(MenuScreen returnTo)
+        {
+            _menuReturn = returnTo;
+            _menu = MenuScreen.Keys;
+            _menuIndex = 0;
+            _menuColumn = 0;
+            _menuArmedUntil = 0f;
+            _menuScreenAt = Time.unscaledTime;
+            _menuNote = null;
+            Sfx.Play(Sound.Tick, 0.7f);
+        }
+
+        /// <summary>키 설정 화면에서 연 곳(일시 정지 메뉴나 메인 화면)으로 돌아간다.</summary>
         private void BackToPauseMenu()
         {
-            _menu = MenuScreen.Pause;
-            _menuIndex = PauseKeys;
+            if (_menuReturn == MenuScreen.Title)
+            {
+                _menu = MenuScreen.Title;
+                _menuIndex = Mathf.Max(0, _titleItems.IndexOf(TitleItem.Keys));
+            }
+            else
+            {
+                _menu = MenuScreen.Pause;
+                _menuIndex = PauseKeys;
+            }
             _menuArmedUntil = 0f;
             _listening = false;
             _menuScreenAt = Time.unscaledTime;
@@ -406,11 +433,16 @@ namespace SteamGame.Prototype
                 _menuMouse = mouse;
                 _menuMouseKnown = true;
 
-                float dim = Mathf.Clamp01((Time.unscaledTime - _menuOpenedAt) / 0.15f);
-                Ui.Fill(new Rect(0f, 0f, Screen.width, Screen.height), new Color(0.01f, 0f, 0.03f, 0.74f * dim));
+                // 메인 화면은 자기 배경을 따로 그린다.
+                if (_menu != MenuScreen.Title)
+                {
+                    float dim = Mathf.Clamp01((Time.unscaledTime - _menuOpenedAt) / 0.15f);
+                    Ui.Fill(new Rect(0f, 0f, Screen.width, Screen.height), new Color(0.01f, 0f, 0.03f, 0.74f * dim));
+                }
             }
 
             if (_menu == MenuScreen.Pause) DrawPauseMenu(mouse);
+            else if (_menu == MenuScreen.Title) DrawTitle(mouse);
             else DrawKeyMenu(mouse);
         }
 
@@ -428,6 +460,7 @@ namespace SteamGame.Prototype
                 case PauseResume: return "계속하기";
                 case PauseKeys: return "키 설정";
                 case PauseSound: return "소리";
+                case PauseTitle: return "메인 화면으로";
                 default: return armed ? "한 번 더 누르면 처음부터" : "처음부터 다시 시작";
             }
         }
@@ -510,6 +543,10 @@ namespace SteamGame.Prototype
             if (armed)
             {
                 Ui.Text(panel.center.x, hintY + keyHeight * 0.5f, "이번 판의 진행이 사라지고 거점에서 다시 시작한다", 8f, Ui.Alpha(Ui.Danger, alpha), false, TextAnchor.MiddleCenter);
+            }
+            else if (_menuIndex == PauseTitle && !(_stage == 1 && _room == 0))
+            {
+                Ui.Text(panel.center.x, hintY + keyHeight * 0.5f, "이어하면 이 방에 들어온 때부터 다시 한다", 8f, Ui.Alpha(Ui.Gold, alpha), false, TextAnchor.MiddleCenter);
             }
             else
             {
