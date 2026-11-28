@@ -4,7 +4,11 @@ using UnityEngine;
 namespace SteamGame.Prototype
 {
     /// <summary>
-    /// 사각형 대신 쓰는 픽셀 그림. 그림 파일 없이 PixelSpriteData의 글자 격자로 스프라이트를 만든다.
+    /// 사각형 대신 쓰는 물건과 지형 그림. Assets/Resources/Art에 그림 파일이 있으면 그것을 쓰고(ArtLibrary),
+    /// 없으면 PixelSpriteData의 글자 격자로 예전 그림을 만든다. 움직이는 캐릭터 그림은 PixelRig가 맡는다.
+    /// 물건과 지형의 그림 파일은 색 없는 회색이라 스프라이트 색으로 물든다.
+    ///
+    /// 예전 글자 격자 그림은 그림 파일 없이 스프라이트를 만든다.
     /// 바탕 층은 밝기만 가진 그림이라 스프라이트의 색으로 물든다. 그래서 적이 노랗게 깜빡이거나
     /// 어두워지는 신호가 사각형일 때와 똑같이 보인다. 눈이나 목도리처럼 색이 정해진 부분은
     /// 덧그림 층으로 따로 올린다.
@@ -24,7 +28,10 @@ namespace SteamGame.Prototype
         {
             if (renderer == null) return;
 
-            Sprite sprite = Get(name, false, PixelsPerUnit);
+            // 그림 파일이 있으면 그것을 쓴다. 칸이 하나인 물건 그림만 여기서 쓰고, 캐릭터 그림 판은 PixelRig가 쓴다.
+            ArtSheet art = ArtLibrary.Get(name);
+            if (art != null && art.FrameCount != 1) art = null;
+            Sprite sprite = art != null ? art.Frame(0) : Get(name, false, PixelsPerUnit);
             if (sprite == null) return;
 
             renderer.sprite = sprite;
@@ -32,7 +39,7 @@ namespace SteamGame.Prototype
             float nativeHeight = sprite.rect.height / sprite.pixelsPerUnit;
             renderer.transform.localScale = new Vector3(size.x / nativeWidth, size.y / nativeHeight, 1f);
 
-            if (!withOverlay) return;
+            if (!withOverlay || art != null) return;
             Sprite overlay = Get(name, true, PixelsPerUnit);
             if (overlay == null) return;
 
@@ -67,7 +74,9 @@ namespace SteamGame.Prototype
         /// </summary>
         public static SpriteRenderer CreateTiled(string name, Transform parent, Vector2 localPosition, Vector2 size, string tile, float pixelsPerUnit, Color color, int sortingOrder)
         {
-            Sprite sprite = Get(tile, false, pixelsPerUnit);
+            // 새 타일 그림은 예전 것보다 두 배 촘촘하므로, 같은 크기로 보이게 기준 해상도도 두 배로 맞춘다.
+            ArtSheet art = ArtLibrary.Get(tile, pixelsPerUnit * (ArtLibrary.PixelsPerUnit / PixelsPerUnit));
+            Sprite sprite = art != null ? art.Frame(0) : Get(tile, false, pixelsPerUnit);
             if (sprite == null)
             {
                 return PrototypeArt.CreateBox(name, parent, localPosition, size, color, sortingOrder);

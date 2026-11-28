@@ -59,8 +59,8 @@ namespace SteamGame.Prototype
     /// <summary>
     /// 방을 만든다. 전투방은 미리 정해 둔 구간(평지, 계단, 구덩이, 언덕, 탑, 섬)을
     /// 무작위 순서로 이어 붙이고, 보스방과 상점, 퍼즐방은 정해진 모양으로 만든다.
-    /// 스테이지마다 지역이 다르다. 1스테이지는 무너진 성채, 2스테이지부터는 빛의 성소다.
-    /// 빛의 성소에는 밟으면 금이 가서 깨지는 유리 발판이 있다.
+    /// 스테이지마다 지역이 다르다. 1스테이지는 무너진 성채, 2스테이지는 빛의 성소, 3스테이지는 멈춘 시계탑이다.
+    /// 빛의 성소에는 밟으면 금이 가서 깨지는 유리 발판이, 멈춘 시계탑에는 박자에 맞춰 솟는 바닥 가시가 있다.
     /// </summary>
     public static class StageBuilder
     {
@@ -75,6 +75,8 @@ namespace SteamGame.Prototype
             public Color Background;
             /// <summary>배경에 희미한 빛줄기를 내린다.</summary>
             public bool LightShafts;
+            /// <summary>배경에 천천히 도는 큰 톱니바퀴를 건다.</summary>
+            public bool Gears;
         }
 
         private static readonly Theme Citadel = new Theme
@@ -98,6 +100,19 @@ namespace SteamGame.Prototype
             LightShafts = true,
         };
 
+        private static readonly Theme Clocktower = new Theme
+        {
+            Name = "멈춘 시계탑",
+            Solid = new Color(0.46f, 0.38f, 0.3f, 1f),
+            Backdrop = new Color(0.2f, 0.15f, 0.12f, 1f),
+            Cap = new Color(0.8f, 0.55f, 0.28f, 1f),
+            FarWall = new Color(0.12f, 0.095f, 0.085f, 1f),
+            Background = new Color(0.075f, 0.06f, 0.055f, 1f),
+            Gears = true,
+        };
+
+        private static readonly Color BackgroundGearColor = new Color(0.22f, 0.17f, 0.13f, 1f);
+
         private static readonly Color GlassColor = new Color(0.7f, 0.92f, 1f, 0.6f);
         private static readonly Color GlassCapColor = new Color(0.85f, 1f, 1f, 0.9f);
         // 보스의 빛기둥(노랗고 곧게 내리꽂힘)과 헷갈리지 않도록 푸른빛으로 비스듬히 비춘다.
@@ -108,7 +123,8 @@ namespace SteamGame.Prototype
 
         private static Theme ThemeFor(int stage)
         {
-            return stage >= 2 ? Sanctum : Citadel;
+            if (stage >= 3) return Clocktower;
+            return stage == 2 ? Sanctum : Citadel;
         }
 
         /// <summary>그 스테이지의 지역 이름. 화면에 보여 준다.</summary>
@@ -147,12 +163,14 @@ namespace SteamGame.Prototype
             switch (type)
             {
                 case RoomType.MidBoss:
-                    if (stage >= 2) BuildTwinRoom(parent, layout);
-                    else BuildBossRoom(parent, layout, EnemyKind.MidBoss);
+                    if (stage >= 3) BuildKnightRoom(parent, layout);
+                    else if (stage == 2) BuildTwinRoom(parent, layout);
+                    else BuildGatekeeperRoom(parent, layout);
                     break;
                 case RoomType.Boss:
-                    if (stage >= 2) BuildLightLordRoom(parent, layout);
-                    else BuildBossRoom(parent, layout, EnemyKind.Boss);
+                    if (stage >= 3) BuildMasterRoom(parent, layout);
+                    else if (stage == 2) BuildLightLordRoom(parent, layout);
+                    else BuildGuardianRoom(parent, layout);
                     break;
                 case RoomType.Shop:
                     BuildShopRoom(layout);
@@ -201,10 +219,11 @@ namespace SteamGame.Prototype
             }
             x += startWidth;
 
-            // 빛의 성소에서는 구덩이 구간 대신 유리 발판이 있는 구간이 나온다.
-            ChunkBuilder[] chunks = _theme == Sanctum
-                ? new ChunkBuilder[] { Flat, Steps, Terrace, Tower, GlassBridge, GlassClimb, Colonnade }
-                : new ChunkBuilder[] { Flat, Steps, Pit, Terrace, Tower, Islands };
+            // 빛의 성소에서는 구덩이 구간 대신 유리 발판이 있는 구간이, 멈춘 시계탑에서는 가시 구간이 나온다.
+            ChunkBuilder[] chunks;
+            if (_theme == Sanctum) chunks = new ChunkBuilder[] { Flat, Steps, Terrace, Tower, GlassBridge, GlassClimb, Colonnade };
+            else if (_theme == Clocktower) chunks = new ChunkBuilder[] { Flat, Steps, Terrace, Tower, Islands, SpikeHall, SpikeStairs };
+            else chunks = new ChunkBuilder[] { Flat, Steps, Pit, Terrace, Tower, Islands };
             int count = stage >= 3 ? 3 : 2;
             int previous = -1;
             for (int i = 0; i < count; i++)
@@ -223,24 +242,36 @@ namespace SteamGame.Prototype
             layout.Width = x + 10f;
         }
 
-        /// <summary>보스방: 구덩이 없는 넓은 평지와 발판 두 개.</summary>
-        private static void BuildBossRoom(Transform parent, StageLayout layout, EnemyKind boss)
+        /// <summary>1스테이지 중간 보스방: 성채의 문지기. 돌진이 벽까지 닿는 넓은 평지와, 돌진을 피할 발판 두 개.</summary>
+        private static void BuildGatekeeperRoom(Transform parent, StageLayout layout)
         {
             const float width = 40f;
             Ground(0f, width);
-            Platform(parent, 11f, 2.2f, 4f);
-            Platform(parent, 29f, 2.2f, 4f);
+            Platform(parent, 10f, 2.2f, 4f);
+            Platform(parent, 30f, 2.2f, 4f);
             Decorate(parent, 0f, width);
             layout.PlayerSpawn = new Vector2(4f, GroundTop);
-            layout.Enemies.Add(new EnemySpawn(boss, new Vector2(27f, GroundTop)));
+            layout.Enemies.Add(new EnemySpawn(EnemyKind.MidBoss, new Vector2(27f, GroundTop)));
             layout.ExitPosition = new Vector2(37f, GroundTop);
             layout.Width = width;
-            if (boss == EnemyKind.Boss)
-            {
-                // 봉인의 수호자가 보호막을 칠 때 봉인석이 놓이는 자리: 양쪽 발판 위.
-                layout.GimmickPoints.Add(new Vector2(11f, GroundTop + 2.2f));
-                layout.GimmickPoints.Add(new Vector2(29f, GroundTop + 2.2f));
-            }
+        }
+
+        /// <summary>1스테이지 보스방: 봉인의 수호자. 양쪽 발판과 가운데 바닥에 봉인석이 설 자리가 있다.</summary>
+        private static void BuildGuardianRoom(Transform parent, StageLayout layout)
+        {
+            const float width = 40f;
+            Ground(0f, width);
+            Platform(parent, 9f, 2.4f, 4f);
+            Platform(parent, 31f, 2.4f, 4f);
+            Decorate(parent, 0f, width);
+            layout.PlayerSpawn = new Vector2(4f, GroundTop);
+            layout.Enemies.Add(new EnemySpawn(EnemyKind.Boss, new Vector2(27f, GroundTop)));
+            layout.ExitPosition = new Vector2(37f, GroundTop);
+            layout.Width = width;
+            // 봉인석이 서는 자리: 왼쪽 발판 위, 가운데 바닥, 오른쪽 발판 위. 순서는 이 차례로 0, 1, 2번이다.
+            layout.GimmickPoints.Add(new Vector2(9f, GroundTop + 2.4f));
+            layout.GimmickPoints.Add(new Vector2(20f, GroundTop));
+            layout.GimmickPoints.Add(new Vector2(31f, GroundTop + 2.4f));
         }
 
         /// <summary>2스테이지 중간 보스방: 쌍둥이 수문장. 해는 가까이, 달은 멀리서 싸운다.</summary>
@@ -270,6 +301,35 @@ namespace SteamGame.Prototype
             layout.PlayerSpawn = new Vector2(4f, GroundTop);
             layout.Enemies.Add(new EnemySpawn(EnemyKind.LightLord, new Vector2(30f, GroundTop)));
             layout.ExitPosition = new Vector2(39f, GroundTop);
+            layout.Width = width;
+        }
+
+        /// <summary>3스테이지 중간 보스방: 태엽 기사. 평지와 양쪽 발판. 시계 감옥은 방 어디에나 서고, 진자는 방 끝에서 끝까지 지나간다.</summary>
+        private static void BuildKnightRoom(Transform parent, StageLayout layout)
+        {
+            const float width = 40f;
+            Ground(0f, width);
+            Platform(parent, 11f, 2.2f, 4f);
+            Platform(parent, 29f, 2.2f, 4f);
+            Decorate(parent, 0f, width, false);
+            layout.PlayerSpawn = new Vector2(4f, GroundTop);
+            layout.Enemies.Add(new EnemySpawn(EnemyKind.ClockKnight, new Vector2(26f, GroundTop)));
+            layout.ExitPosition = new Vector2(37f, GroundTop);
+            layout.Width = width;
+        }
+
+        /// <summary>3스테이지 보스방: 시계탑의 주인. 넓은 평지, 양쪽의 낮은 발판, 가운데의 높은 발판.</summary>
+        private static void BuildMasterRoom(Transform parent, StageLayout layout)
+        {
+            const float width = 44f;
+            Ground(0f, width);
+            Platform(parent, 10f, 2.4f, 4f);
+            Platform(parent, 34f, 2.4f, 4f);
+            Platform(parent, 22f, 4.2f, 5f);
+            Decorate(parent, 0f, width, false);
+            layout.PlayerSpawn = new Vector2(4f, GroundTop);
+            layout.Enemies.Add(new EnemySpawn(EnemyKind.ClockMaster, new Vector2(32f, GroundTop)));
+            layout.ExitPosition = new Vector2(41f, GroundTop);
             layout.Width = width;
         }
 
@@ -451,7 +511,42 @@ namespace SteamGame.Prototype
             return 30f;
         }
 
+        /// <summary>멈춘 시계탑: 바닥 가시가 번갈아 솟는 복도. 가시 사이의 빈 바닥과 가운데 발판에서 싸운다.</summary>
+        private static float SpikeHall(Transform parent, float x, int stage, StageLayout layout)
+        {
+            Ground(x, x + 32f);
+            Spikes(parent, x + 5f, x + 9f, 0f);
+            Spikes(parent, x + 13f, x + 17f, SpikeTrap.Period * 0.5f);
+            Spikes(parent, x + 21f, x + 25f, 0f);
+            Platform(parent, x + 15f, 3.2f, 4f);
+            Spawn(layout, EnemyKind.Brute, x + 11f, 0f);
+            Spawn(layout, EnemyKind.Shooter, x + 15f, 3.2f);
+            Spawn(layout, EnemyKind.Brute, x + 19f, 0f);
+            Spawn(layout, EnemyKind.Brute, x + 28f, 0f);
+            return 32f;
+        }
+
+        /// <summary>멈춘 시계탑: 가시가 깔린 바닥 위로 발판을 밟고 건너간다. 가시가 들어간 틈에 바닥으로 내려와도 된다.</summary>
+        private static float SpikeStairs(Transform parent, float x, int stage, StageLayout layout)
+        {
+            Ground(x, x + 30f);
+            Spikes(parent, x + 6f, x + 24f, SpikeTrap.Period * 0.25f);
+            Platform(parent, x + 8f, 1.8f, 3.5f);
+            Platform(parent, x + 14f, 3.2f, 3.5f);
+            Platform(parent, x + 20f, 1.8f, 3.5f);
+            Spawn(layout, EnemyKind.Shooter, x + 14f, 3.2f);
+            Spawn(layout, EnemyKind.Shooter, x + 20f, 1.8f);
+            Spawn(layout, EnemyKind.Brute, x + 27f, 0f);
+            return 30f;
+        }
+
         // ---- 재료 ----
+
+        /// <summary>바닥에 박자 맞춰 솟는 가시를 깐다. offset만큼 박자를 늦춰서 옆의 가시와 엇갈리게 한다.</summary>
+        private static void Spikes(Transform parent, float left, float right, float offset)
+        {
+            SpikeTrap.Create(parent, left, right, GroundTop, offset);
+        }
 
         private static void Ground(float left, float right)
         {
@@ -523,8 +618,10 @@ namespace SteamGame.Prototype
             layout.Enemies.Add(new EnemySpawn(kind, new Vector2(x, GroundTop + heightAboveGround)));
         }
 
-        /// <summary>움직임이 눈에 보이도록 배경에 어두운 기둥을 세운다. 충돌하지 않는다.</summary>
-        /// <summary>배경 기둥을 세운다. 보스방에서는 빛줄기를 넣지 않는다(빛기둥 공격과 헷갈리지 않게).</summary>
+        /// <summary>
+        /// 움직임이 눈에 보이도록 배경에 어두운 기둥을 세운다. 충돌하지 않는다.
+        /// 보스방에서는 빛줄기를 넣지 않는다(빛기둥 공격과 헷갈리지 않게).
+        /// </summary>
         private static void Decorate(Transform parent, float x, float width, bool lightShafts = true)
         {
             for (int i = 0; i < 3; i++)
@@ -533,6 +630,18 @@ namespace SteamGame.Prototype
                 float pillarHeight = Random.Range(3f, 10f);
                 float centerX = x + Random.Range(1f, width - 1f);
                 PixelSprites.CreateTiled("Backdrop", parent, new Vector2(centerX, GroundTop + pillarHeight * 0.5f), new Vector2(pillarWidth, pillarHeight), "Stone", PixelSprites.PixelsPerUnit, _theme.Backdrop, -10);
+            }
+
+            if (_theme.Gears)
+            {
+                // 멈춘 시계탑: 벽 너머에서 천천히 도는 큰 톱니바퀴.
+                for (int i = 0; i < 2; i++)
+                {
+                    float centerX = x + Random.Range(2f, width - 2f);
+                    var position = new Vector2(centerX, GroundTop + Random.Range(4f, 9f));
+                    float spin = Random.Range(8f, 18f) * (Random.value < 0.5f ? -1f : 1f);
+                    ClockArt.CreateBackgroundGear(parent, position, Random.Range(3f, 6f), BackgroundGearColor, spin);
+                }
             }
 
             if (!_theme.LightShafts || !lightShafts) return;

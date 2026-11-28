@@ -10,9 +10,9 @@ namespace SteamGame.Prototype
         Brute = 1,
         /// <summary>제자리에서 번쩍인 뒤 탄을 쏜다.</summary>
         Shooter = 2,
-        /// <summary>중간 보스. 돌진과 세 갈래 탄을 번갈아 쓴다.</summary>
+        /// <summary>1스테이지 중간 보스 성채의 문지기. 돌진, 땅울림, 낙석을 쓰고 체력 60%부터 철갑을 두른다.</summary>
         MidBoss = 3,
-        /// <summary>보스. 돌진, 다섯 갈래 탄, 뛰어올라 내려찍기를 차례로 쓴다.</summary>
+        /// <summary>1스테이지 보스 봉인의 수호자. 봉인 파동, 사슬, 봉인진을 쓰고 체력 60%부터 봉인석의 순서를 풀어야 한다.</summary>
         Boss = 4,
         /// <summary>방패병. 돌진형처럼 싸우지만 앞에서 때리면 막는다. 뒤를 치거나 빈틈을 노려야 한다.</summary>
         Shield = 5,
@@ -20,18 +20,23 @@ namespace SteamGame.Prototype
         Bomber = 6,
         /// <summary>날아다니는 적. 지형을 무시하고 위에서 맴돌다가 번쩍인 뒤 내리꽂는다.</summary>
         Flyer = 7,
-        /// <summary>2스테이지 중간 보스인 쌍둥이 중 해. 가까이 붙어 돌진하고 뛰어올라 내려찍는다.</summary>
+        /// <summary>2스테이지 중간 보스인 쌍둥이 중 해. 불꽃을 남기며 달리고 뛰어올라 덮친다. 내 공격만 받는다.</summary>
         TwinSun = 8,
-        /// <summary>2스테이지 중간 보스인 쌍둥이 중 달. 거리를 두고 탄과 폭탄을 던진다.</summary>
+        /// <summary>2스테이지 중간 보스인 쌍둥이 중 달. 걷지 않고 순간이동하며 초승달과 폭탄을 던진다. 분신의 공격만 받는다.</summary>
         TwinMoon = 9,
         /// <summary>2스테이지 보스 백광의 군주. 세 단계로 싸우고, 단계마다 풀어야 할 기믹이 있다.</summary>
         LightLord = 10,
+        /// <summary>3스테이지 중간 보스 태엽 기사. 순간 베기, 진자, 초침을 쓰고 플레이어 둘레에 시계 감옥을 세운다.</summary>
+        ClockKnight = 11,
+        /// <summary>3스테이지 보스이자 마지막 보스인 시계탑의 주인. 등 뒤만 뚫리는 시계 방패와 체력을 되돌리는 역행을 쓴다.</summary>
+        ClockMaster = 12,
     }
 
     /// <summary>
     /// 적. 모든 공격 전에 번쩍이는 예고 동작이 있어서 보고 피할 수 있다.
     /// 예고와 공격 중에는 맞아도 밀려나지 않으므로, 계속 때리기만 해서는 막을 수 없다.
-    /// 보스의 기믹(보호막, 쌍둥이, 갑옷, 표식, 심판)은 EnemyRaid.cs에 있다.
+    /// 보스의 움직임과 공격 고르기는 EnemyBoss.cs에, 기믹이 함께 쓰는 것은 EnemyRaid.cs에,
+    /// 보스마다의 공격과 기믹은 EnemyCitadel.cs(1스테이지), EnemySanctum.cs(2스테이지), EnemyClock.cs(3스테이지)에 있다.
     /// </summary>
     public sealed partial class Enemy : MonoBehaviour
     {
@@ -78,35 +83,10 @@ namespace SteamGame.Prototype
         private const float FlyerRecoverTime = 0.8f;
         private const float FlyerInterval = 1.6f;
 
-        private const float BossNoticeRange = 18f;
-        private const float BossWindupTime = 0.5f;
-        /// <summary>보스가 흩뿌리는 탄의 속도. 잡몹 탄(ProjectileSpeed)보다 빠르다.</summary>
-        private const float BossProjectileSpeed = 8.5f;
-        /// <summary>스테이지 끝 보스의 돌진과 내려찍기에 맞으면 잃는 체력. 다른 공격은 모두 1이다.</summary>
-        private const int FinalBossHeavyDamage = 2;
-        private const float BossLungeTime = 0.4f;
-        private const float BossLungeSpeed = 14f;
-        private const float BossSlamAirTime = 0.8f;
         private const float BossGravityScale = 3.5f;
-        private const float WaveSpeed = 9f;
-
-        /// <summary>보스가 쓰는 공격 종류.</summary>
-        private enum Pattern
-        {
-            Lunge,
-            Spread,
-            Slam,
-            /// <summary>폭탄 세 개를 플레이어 자리와 양옆에 던진다.</summary>
-            Bombs,
-            /// <summary>플레이어 자리와 일정한 간격으로 빛기둥을 내린다.</summary>
-            Pillars,
-            /// <summary>분신에게 빛의 표식을 붙인다. 몇 초 뒤 분신 자리에서 터진다.</summary>
-            Mark,
-            /// <summary>긴 예고 뒤 방 전체에 빛을 내린다. 분신의 그림자 속만 안전하다.</summary>
-            Judgment,
-        }
 
         private static readonly Color WarningColor = new Color(1f, 0.95f, 0.3f, 1f);
+        private static readonly Color BossCalloutColor = new Color(1f, 0.52f, 0.34f, 1f);
 
         private PrototypeGame _game;
         private PlayerController _player;
@@ -140,13 +120,12 @@ namespace SteamGame.Prototype
         private float _diveFloorY;
         private SpriteRenderer _shieldVisual;
         private readonly float[] _lastHitTime = { -999f, -999f };
-        private bool _enrageAnnounced;
 
         public EnemyKind Kind { get; private set; }
         public Collider2D Collider => _collider;
-        public bool IsBoss => Kind == EnemyKind.MidBoss || Kind == EnemyKind.Boss || Kind == EnemyKind.TwinSun || Kind == EnemyKind.TwinMoon || Kind == EnemyKind.LightLord;
+        public bool IsBoss => Kind == EnemyKind.MidBoss || Kind == EnemyKind.Boss || Kind == EnemyKind.TwinSun || Kind == EnemyKind.TwinMoon || Kind == EnemyKind.LightLord || Kind == EnemyKind.ClockKnight || Kind == EnemyKind.ClockMaster;
         /// <summary>스테이지 끝의 보스인지. 중간 보스가 아니다.</summary>
-        public bool IsFinalBoss => Kind == EnemyKind.Boss || Kind == EnemyKind.LightLord;
+        public bool IsFinalBoss => Kind == EnemyKind.Boss || Kind == EnemyKind.LightLord || Kind == EnemyKind.ClockMaster;
         public float HealthRatio => Mathf.Clamp01(_health / MaxHealth);
         /// <summary>몸의 기본 색. 조각이 튈 때 이 색을 쓴다.</summary>
         public Color BaseColor => _baseColor;
@@ -163,6 +142,8 @@ namespace SteamGame.Prototype
                     case EnemyKind.TwinSun:
                     case EnemyKind.TwinMoon: return 20;
                     case EnemyKind.LightLord: return 80;
+                    case EnemyKind.ClockKnight: return 40;
+                    case EnemyKind.ClockMaster: return 100;
                     case EnemyKind.Dummy: return 0;
                     default: return 5;
                 }
@@ -183,6 +164,8 @@ namespace SteamGame.Prototype
                 case EnemyKind.TwinSun: return new Vector2(1.4f, 2f);
                 case EnemyKind.TwinMoon: return new Vector2(1.3f, 1.9f);
                 case EnemyKind.LightLord: return new Vector2(2.2f, 3f);
+                case EnemyKind.ClockKnight: return new Vector2(1.6f, 2.2f);
+                case EnemyKind.ClockMaster: return new Vector2(2.4f, 3.2f);
                 default: return new Vector2(0.9f, 1.2f);
             }
         }
@@ -201,6 +184,8 @@ namespace SteamGame.Prototype
                 case EnemyKind.TwinSun: return new Color(0.95f, 0.7f, 0.25f, 1f);
                 case EnemyKind.TwinMoon: return new Color(0.55f, 0.5f, 0.95f, 1f);
                 case EnemyKind.LightLord: return new Color(0.9f, 0.8f, 0.5f, 1f);
+                case EnemyKind.ClockKnight: return new Color(0.55f, 0.6f, 0.68f, 1f);
+                case EnemyKind.ClockMaster: return new Color(0.62f, 0.5f, 0.36f, 1f);
                 default: return new Color(0.85f, 0.3f, 0.35f, 1f);
             }
         }
@@ -216,9 +201,12 @@ namespace SteamGame.Prototype
             _cooldown = Random.Range(0.4f, 1.4f);
 
             _sprite = PrototypeArt.CreateBox("Body", transform, Vector2.zero, _size, _baseColor, 8);
-            PixelSprites.Dress(_sprite, kind.ToString(), _size);
+            // 움직이는 그림 판이 있으면 그것을, 없으면 예전 픽셀 그림을 쓴다.
+            _rig = PixelRig.Attach(_sprite, kind.ToString(), _size);
+            if (_rig == null) PixelSprites.Dress(_sprite, kind.ToString(), _size);
 
-            float barY = _size.y * 0.5f + 0.3f;
+            // 새 보스 그림은 뿔, 후광, 모자가 몸보다 위로 솟아 있어서 체력 막대를 조금 더 올린다.
+            float barY = _size.y * 0.5f + (_rig != null && IsBoss ? 0.7f : 0.3f);
             PrototypeArt.CreateBox("HealthBack", transform, new Vector2(0f, barY), new Vector2(1.1f, 0.14f), new Color(0f, 0f, 0f, 0.7f), 13);
             _healthFill = PrototypeArt.CreateBox("HealthFill", transform, new Vector2(0f, barY), new Vector2(1f, 0.08f), new Color(0.9f, 0.25f, 0.25f, 1f), 14).transform;
 
@@ -243,18 +231,47 @@ namespace SteamGame.Prototype
             {
                 // 방패가 어느 쪽을 막고 있는지 보여 주는 밝은 막대.
                 _shieldVisual = PrototypeArt.CreateBox("Shield", transform, Vector2.zero, new Vector2(0.16f, _size.y * 0.9f), new Color(0.85f, 0.95f, 1f, 1f), 9);
+                if (_rig != null)
+                {
+                    // 새 그림에는 방패가 그려져 있으므로, 막는 쪽을 알리는 막대는 얇고 은은한 빛으로 둔다.
+                    _shieldVisual.transform.localScale = new Vector3(0.08f, _size.y * 0.8f, 1f);
+                    _shieldVisual.color = new Color(0.8f, 0.95f, 1f, 0.45f);
+                }
             }
 
             BuildRaid();
         }
 
-        /// <summary>방패병이 지금 그쪽을 막고 있는지. 공격 뒤 빈틈에는 방패를 내린다.</summary>
-        private bool IsGuarding => Kind == EnemyKind.Shield && _state != State.Recover;
+        /// <summary>
+        /// 방패병이 지금 그쪽을 막고 있는지. 공격 뒤 빈틈에는 방패를 내린다.
+        /// 시계 방패를 든 시계탑의 주인은 빈틈에도 막고, 무너졌을 때만 내린다.
+        /// </summary>
+        private bool IsGuarding => (Kind == EnemyKind.Shield && _state != State.Recover) || IsClockGuarding;
 
         private void Update()
         {
             PixelSprites.Face(_sprite, _facing);
 
+            if (_rig != null)
+            {
+                UpdateRigLook();
+            }
+            else
+            {
+                UpdateBoxLook();
+            }
+            UpdateRaidVisuals();
+
+            if (_shieldVisual != null)
+            {
+                _shieldVisual.enabled = IsGuarding;
+                _shieldVisual.transform.localPosition = new Vector3(_facing * (_size.x * 0.5f + 0.1f), 0f, 0f);
+            }
+        }
+
+        /// <summary>예전 픽셀 그림일 때의 색. 그림 전체를 신호 색으로 칠한다.</summary>
+        private void UpdateBoxLook()
+        {
             Color color = _baseColor;
             if (_flashTimer > 0f)
             {
@@ -276,13 +293,6 @@ namespace SteamGame.Prototype
                 color = new Color(_baseColor.r * 0.55f, _baseColor.g * 0.55f, _baseColor.b * 0.55f, 1f);
             }
             _sprite.color = RaidTint(color);
-            UpdateRaidVisuals();
-
-            if (_shieldVisual != null)
-            {
-                _shieldVisual.enabled = IsGuarding;
-                _shieldVisual.transform.localPosition = new Vector3(_facing * (_size.x * 0.5f + 0.1f), 0f, 0f);
-            }
         }
 
         private void FixedUpdate()
@@ -638,204 +648,12 @@ namespace SteamGame.Prototype
             }
         }
 
-        /// <summary>
-        /// 보스: 거리를 좁히다가 정해진 순서대로 공격을 고른다.
-        /// 모든 공격은 번쩍이는 예고 뒤에 나오고, 끝나면 빈틈이 생긴다.
-        /// 공격 순서, 예고 시간, 움직임은 보스마다 다르고 EnemyRaid.cs에서 정한다.
-        /// </summary>
-        private float TickBoss(Vector2 toPlayer)
-        {
-            float distanceX = Mathf.Abs(toPlayer.x);
-            bool enraged = IsBossEnraged;
-
-            switch (_state)
-            {
-                case State.Idle:
-                    if (distanceX < BossNoticeRange)
-                    {
-                        _state = State.Chase;
-                        _cooldown = 1f;
-                    }
-                    return 0f;
-
-                case State.Chase:
-                    _facing = toPlayer.x >= 0f ? 1 : -1;
-                    _cooldown -= Time.fixedDeltaTime;
-                    if (_cooldown <= 0f)
-                    {
-                        _pattern = NextPattern(toPlayer);
-                        Enter(State.Windup, WindupFor(_pattern));
-                        Warn(_body.position + Vector2.up * (_size.y * 0.5f + 0.9f), PatternHint(_pattern));
-                        OnPatternWindup(_pattern);
-                        return 0f;
-                    }
-                    return ChaseSpeed(toPlayer);
-
-                case State.Windup:
-                    _stateTimer -= Time.fixedDeltaTime;
-                    if (_stateTimer > 0f) return 0f;
-
-                    switch (_pattern)
-                    {
-                        case Pattern.Spread:
-                            FireSpread(toPlayer, SpreadCount());
-                            Enter(State.Recover, 0.75f);
-                            return 0f;
-                        case Pattern.Bombs:
-                            ThrowBombs();
-                            Enter(State.Recover, 0.75f);
-                            return 0f;
-                        case Pattern.Pillars:
-                            CallPillars();
-                            Enter(State.Recover, enraged ? 0.7f : 1f);
-                            return 0f;
-                        case Pattern.Mark:
-                            PlaceMark();
-                            Enter(State.Recover, 0.5f);
-                            return 0f;
-                        case Pattern.Judgment:
-                            Judge();
-                            Enter(State.Recover, 1.4f);
-                            return 0f;
-                    }
-                    if (_pattern == Pattern.Slam)
-                    {
-                        // 플레이어가 지금 있는 자리로 뛰어오른다. 위에 있으면 더 높이 뛴다.
-                        float gravity = Mathf.Abs(Physics2D.gravity.y) * BossGravityScale;
-                        float flatSpeed = gravity * BossSlamAirTime * 0.5f;
-                        float reachSpeed = Mathf.Sqrt(2f * gravity * (Mathf.Max(toPlayer.y, 0f) + 1.5f));
-                        float jumpSpeed = Mathf.Clamp(Mathf.Max(flatSpeed, reachSpeed), flatSpeed, 19f);
-                        float airTime = 2f * jumpSpeed / gravity * 0.85f;
-                        _slamVelocityX = Mathf.Clamp(toPlayer.x / airTime, -12f, 12f);
-                        _body.linearVelocity = new Vector2(_slamVelocityX, jumpSpeed);
-                        _airTime = 0f;
-                        Enter(State.Attack, 3f);
-                        return _slamVelocityX;
-                    }
-                    Enter(State.Attack, BossLungeTime);
-                    return 0f;
-
-                case State.Attack:
-                    if (_pattern == Pattern.Slam)
-                    {
-                        _airTime += Time.fixedDeltaTime;
-                        _stateTimer -= Time.fixedDeltaTime;
-                        bool landed = _airTime > 0.3f && _body.linearVelocity.y <= 0.1f && IsStandingOnGround();
-                        if (landed || _stateTimer <= 0f)
-                        {
-                            Land();
-                            Enter(State.Recover, enraged ? 0.75f : 1f);
-                            return 0f;
-                        }
-                        return _slamVelocityX;
-                    }
-
-                    if (_collider.bounds.Intersects(_player.Collider.bounds))
-                    {
-                        _player.TakeDamage(HeavyHitDamage, _body.position.x);
-                    }
-                    _stateTimer -= Time.fixedDeltaTime;
-                    if (_stateTimer <= 0f)
-                    {
-                        if (_lungesLeft > 0)
-                        {
-                            // 한 번 더 돌진한다. 짧게 예고하고 플레이어 쪽으로 다시 돈다.
-                            _lungesLeft--;
-                            _facing = toPlayer.x >= 0f ? 1 : -1;
-                            Enter(State.Windup, 0.35f);
-                            Warn(_body.position + Vector2.up * (_size.y * 0.5f + 0.9f), PatternHint(Pattern.Lunge));
-                            return 0f;
-                        }
-                        Enter(State.Recover, enraged ? 0.65f : 0.9f);
-                    }
-                    return HasGroundAhead() ? _facing * BossLungeSpeed : 0f;
-
-                default:
-                    _stateTimer -= Time.fixedDeltaTime;
-                    if (_stateTimer <= 0f)
-                    {
-                        _state = State.Chase;
-                        _cooldown = BossCooldown(enraged);
-                    }
-                    return 0f;
-            }
-        }
-
-        private Pattern NextPattern(Vector2 toPlayer)
-        {
-            _patternIndex++;
-
-            // 기믹이 있는 보스는 자기 순서를 따른다.
-            Pattern raidPattern;
-            if (TryRaidPattern(toPlayer, out raidPattern)) return raidPattern;
-
-            // 플레이어가 발판 위에 있으면 돌진은 닿지 않는다. 뛰어올라 덮치거나 탄을 쏜다.
-            if (toPlayer.y > 1.5f)
-            {
-                return _patternIndex % 2 == 0 ? Pattern.Slam : Pattern.Spread;
-            }
-
-            Pattern[] cycle = Kind == EnemyKind.Boss
-                ? new[] { Pattern.Lunge, Pattern.Spread, Pattern.Slam }
-                : new[] { Pattern.Lunge, Pattern.Spread };
-            return cycle[_patternIndex % cycle.Length];
-        }
-
-        private static string PatternHint(Pattern pattern)
-        {
-            switch (pattern)
-            {
-                case Pattern.Spread: return "탄!";
-                case Pattern.Slam: return "내려찍기!";
-                case Pattern.Bombs: return "폭탄!";
-                case Pattern.Pillars: return "빛기둥!";
-                case Pattern.Mark: return "표식!";
-                case Pattern.Judgment: return "심판!";
-                default: return "돌진!";
-            }
-        }
-
-        /// <summary>플레이어 쪽을 중심으로 부채꼴로 탄을 쏜다.</summary>
-        private void FireSpread(Vector2 toPlayer, int count)
-        {
-            Vector2 aim = toPlayer.sqrMagnitude > 0.01f ? toPlayer.normalized : new Vector2(_facing, 0f);
-            float baseAngle = Mathf.Atan2(aim.y, aim.x);
-            float step = 16f * Mathf.Deg2Rad;
-            for (int i = 0; i < count; i++)
-            {
-                float angle = baseAngle + (i - (count - 1) * 0.5f) * step;
-                Vector2 direction = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
-                _game.SpawnProjectile(_body.position, direction * BossProjectileSpeed, 0.35f);
-            }
-        }
-
-        /// <summary>보스 몸으로 하는 큰 공격(돌진, 내려찍기)의 피해. 스테이지 끝 보스는 더 아프다.</summary>
-        private int HeavyHitDamage => IsFinalBoss ? FinalBossHeavyDamage : 1;
-
-        /// <summary>내려찍기 착지: 바로 옆에 있으면 피해를 주고, 바닥을 따라 양쪽으로 충격파를 보낸다.</summary>
-        private void Land()
-        {
-            Bounds reach = _collider.bounds;
-            reach.Expand(new Vector3(1.2f, 0.4f, 0f));
-            if (reach.Intersects(_player.Collider.bounds))
-            {
-                _player.TakeDamage(HeavyHitDamage, _body.position.x);
-            }
-
-            Vector2 feet = _body.position + new Vector2(0f, -_size.y * 0.5f + 0.35f);
-            if (Kind == EnemyKind.Boss || Kind == EnemyKind.LightLord)
-            {
-                _game.SpawnProjectile(feet + new Vector2(_size.x * 0.5f, 0f), new Vector2(WaveSpeed, 0f), 0.6f);
-                _game.SpawnProjectile(feet - new Vector2(_size.x * 0.5f, 0f), new Vector2(-WaveSpeed, 0f), 0.6f);
-            }
-            _game.ShowBlast(feet, _size.x * 0.5f + 0.8f, new Color(1f, 0.95f, 0.3f, 0.35f));
-            _game.Feel.BossSlam(feet);
-        }
-
         /// <summary>공격 예고를 글자와 소리로 알린다.</summary>
         private void Warn(Vector2 position, string text)
         {
-            _game.ShowPopup(position, text, WarningColor);
+            // 보스는 공격 이름을 붉은 판에 담아 띄우고, 잡몹은 느낌표만 띄운다.
+            if (IsBoss) _game.ShowCallout(position, text, BossCalloutColor);
+            else _game.ShowPopup(position, text, WarningColor);
             Sfx.Play(Sound.Warn);
         }
 
@@ -849,6 +667,7 @@ namespace SteamGame.Prototype
         {
             _state = state;
             _stateTimer = duration;
+            _stateSerial++;
         }
 
         /// <summary>발 앞쪽에 바닥이 있는지 본다. 없으면 낭떠러지라서 멈춘다.</summary>
@@ -861,8 +680,8 @@ namespace SteamGame.Prototype
         public void TakeHit(float damage, HitSource source, Vector2 knockback)
         {
             if (_dead) return;
-            // 쓰러진 쌍둥이와, 보호막이나 갑옷을 두른 보스는 피해를 받지 않는다.
-            if (BlockedByRaid()) return;
+            // 쓰러진 쌍둥이와, 철갑이나 보호막이나 갑옷을 두른 보스는 피해를 받지 않는다. 쌍둥이는 맞는 쪽이 정해져 있다.
+            if (BlockedByRaid(source)) return;
 
             // 방패병은 앞에서 온 공격을 막는다. 밀려나는 방향의 반대쪽이 공격자가 있는 쪽이다.
             int attackerSide = knockback.x >= 0f ? -1 : 1;
@@ -872,8 +691,11 @@ namespace SteamGame.Prototype
                 _flashColor = new Color(0.8f, 0.9f, 1f, 1f);
                 _flashTimer = 0.08f;
                 _game.Feel.BlockedHit((Vector2)transform.position + new Vector2(_facing * _size.x * 0.5f, 0f));
+                if (IsClockGuarding) OnClockGuardBlocked();
                 return;
             }
+            // 시계 방패를 든 보스의 등 뒤를 쳤다. 피해도 주고 방패에 금도 간다.
+            if (attackerSide != _facing) OnClockBackHit();
 
             int self = (int)source;
             int other = 1 - self;
@@ -882,8 +704,10 @@ namespace SteamGame.Prototype
             _lastHitTime[self] = Time.time;
 
             if (pincer) damage *= _game.Stats.PincerMultiplier;
-            // 기믹을 풀어 보스가 무너져 있는 동안에는 더 아프게 맞는다.
-            damage *= DamageTakenScale;
+            // 멈춘 태엽 기사는 협공에 태엽이 풀린다. 피해를 정하기 전에 알려 준다.
+            OnRaidHit(pincer);
+            // 기믹을 풀어 보스가 무너져 있는 동안에는 더 아프게, 태엽 갑옷을 입은 동안에는 덜 아프게 맞는다.
+            damage *= DamageTakenScale(source);
             _health -= damage;
 
             Vector2 popupPosition = (Vector2)transform.position + Vector2.up * (_size.y * 0.5f + 0.6f);
@@ -929,15 +753,6 @@ namespace SteamGame.Prototype
                 }
             }
 
-            if ((Kind == EnemyKind.MidBoss || Kind == EnemyKind.Boss) && !_enrageAnnounced && HealthRatio < 0.5f)
-            {
-                // 체력이 절반 아래로 내려가면 분노한다. 몸이 붉어지고 빈틈이 짧아진다.
-                // 봉인의 수호자는 이때 보호막을 친다.
-                _enrageAnnounced = true;
-                _baseColor = Color.Lerp(_baseColor, new Color(1f, 0.2f, 0.12f, 1f), 0.6f);
-                if (Kind == EnemyKind.Boss) RaiseSeal();
-                else _game.OnBossEnraged(this);
-            }
             CheckRaidPhases();
 
             UpdateHealthBar();

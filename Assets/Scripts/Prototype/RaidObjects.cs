@@ -76,37 +76,44 @@ namespace SteamGame.Prototype
     }
 
     /// <summary>
-    /// 봉인의 수호자가 보호막을 칠 때 생기는 봉인석. 맞으면 잠깐 빛난다.
-    /// 두 봉인석이 동시에 빛나고 있으면 보호막이 깨진다. 이 판정은 보스가 한다.
-    /// 플레이어와 분신의 공격 모두에 반응하고, 몸으로 길을 막지 않는다.
+    /// 봉인의 수호자가 보호막을 칠 때 세우는 봉인석. 맞으면 수호자에게 알리고, 켜질지 말지는 수호자가 정한다(EnemyCitadel.cs).
+    /// 순서를 보여 줄 때 잠깐 번쩍이고, 켜지면 계속 빛나고, 틀리면 붉게 번쩍인다.
+    /// 플레이어와 분신의 공격 모두에 맞지만, 몸으로 길을 막지는 않는다.
     /// </summary>
     public sealed class SealStone : MonoBehaviour
     {
         public static readonly Vector2 Size = new Vector2(0.9f, 1.3f);
 
-        /// <summary>한 번 맞으면 빛나 있는 시간(초).</summary>
-        public const float LitDuration = 1.2f;
+        private const float FlashTime = 0.6f;
+        private const float RejectTime = 0.6f;
 
         private static readonly Color DarkColor = new Color(0.35f, 0.45f, 0.6f, 1f);
         private static readonly Color LitColor = new Color(0.7f, 1f, 1f, 1f);
+        private static readonly Color RejectColor = new Color(1f, 0.35f, 0.3f, 1f);
+        private static readonly Color DullColor = new Color(0.6f, 0.6f, 0.65f, 1f);
 
+        private Enemy _owner;
         private SpriteRenderer _body;
         private SpriteRenderer _glow;
-        private float _lit;
+        private bool _lit;
+        private float _flash;
+        private float _reject;
         private bool _broken;
 
-        public bool IsLit => !_broken && _lit > 0f;
-        /// <summary>남은 빛의 비율. 1이면 방금 맞은 것이다.</summary>
-        public float LitRatio => _broken ? 0f : Mathf.Clamp01(_lit / LitDuration);
+        /// <summary>몇 번째 봉인석인지(0부터). 수호자가 순서를 맞춰 볼 때 쓴다.</summary>
+        public int Index { get; private set; }
+        public bool IsLit => !_broken && _lit;
 
         /// <summary>feet 위에 봉인석을 세운다. 방이 바뀌면 함께 사라지도록 방 아래에 만든다.</summary>
-        public static SealStone Create(Transform parent, Vector2 feet)
+        public static SealStone Create(Transform parent, Vector2 feet, Enemy owner, int index)
         {
             var go = new GameObject("SealStone");
             go.transform.SetParent(parent, false);
             // 발판에서 조금 떠 있다.
             go.transform.position = new Vector3(feet.x, feet.y + Size.y * 0.5f + 0.1f, 0f);
             var stone = go.AddComponent<SealStone>();
+            stone._owner = owner;
+            stone.Index = index;
             stone.Build();
             return stone;
         }
@@ -122,20 +129,49 @@ namespace SteamGame.Prototype
             collider.isTrigger = true;
         }
 
-        /// <summary>공격에 맞았다. 다시 맞으면 빛나는 시간이 처음부터 다시 흐른다.</summary>
+        /// <summary>공격에 맞았다. 수호자에게 알린다.</summary>
         public void Hit(HitSource source)
         {
+            if (_broken || _owner == null) return;
+            _owner.OnSealStoneHit(this, source);
+        }
+
+        /// <summary>순서를 보여 줄 때 잠깐 밝게 번쩍인다.</summary>
+        public void Flash()
+        {
             if (_broken) return;
+            _flash = FlashTime;
+            Sfx.Play(Sound.Chime);
+            Sparks(LitColor, 6);
+        }
 
-            bool wasLit = _lit > 0f;
-            _lit = LitDuration;
-            if (!wasLit) Sfx.Play(Sound.Chime, source == HitSource.Shadow ? 0.8f : 1f);
-
-            PrototypeGame game = PrototypeGame.Current;
-            if (game != null && game.Feel != null)
+        /// <summary>켜거나 끈다. 켜진 봉인석은 보호막이 깨질 때까지 계속 빛난다.</summary>
+        public void SetLit(bool lit)
+        {
+            if (_broken) return;
+            if (lit && !_lit)
             {
-                game.Feel.Sparks(transform.position, LitColor, 4, 3.5f);
+                Sfx.Play(Sound.Chime, 0.8f);
+                Sparks(LitColor, 8);
             }
+            _lit = lit;
+        }
+
+        /// <summary>순서가 틀렸다. 붉게 번쩍인다.</summary>
+        public void Reject()
+        {
+            if (_broken) return;
+            _reject = RejectTime;
+            Sfx.Play(Sound.Deny);
+            Sparks(RejectColor, 8);
+        }
+
+        /// <summary>반응하지 않는 공격에 맞았다. 둔하게 튕긴다.</summary>
+        public void Dull()
+        {
+            if (_broken) return;
+            Sfx.Play(Sound.Block, 0.5f);
+            Sparks(DullColor, 3);
         }
 
         /// <summary>보호막이 깨질 때 함께 부서진다.</summary>
@@ -143,30 +179,55 @@ namespace SteamGame.Prototype
         {
             if (_broken) return;
             _broken = true;
-
-            PrototypeGame game = PrototypeGame.Current;
-            if (game != null && game.Feel != null)
-            {
-                game.Feel.Sparks(transform.position, LitColor, 14, 7f);
-            }
+            Sparks(LitColor, 14);
             Destroy(gameObject);
+        }
+
+        private void Sparks(Color color, int count)
+        {
+            PrototypeGame game = PrototypeGame.Current;
+            if (game != null && game.Feel != null) game.Feel.Sparks(transform.position, color, count, 4f);
         }
 
         private void Update()
         {
             if (_broken) return;
 
-            if (_lit > 0f) _lit -= Time.deltaTime;
-            float ratio = LitRatio;
-            _body.color = Color.Lerp(DarkColor, LitColor, ratio > 0f ? 0.5f + ratio * 0.5f : 0f);
-            // 빛나는 동안 둘레에 빛이 퍼진다. 꺼질 때가 가까우면 깜빡인다.
-            float blink = ratio > 0f && ratio < 0.35f && Mathf.FloorToInt(Time.time * 12f) % 2 == 0 ? 0.4f : 1f;
-            _glow.color = new Color(0.6f, 1f, 1f, ratio > 0f ? 0.35f * blink : 0.06f + 0.04f * Mathf.Sin(Time.time * 3f));
+            if (_flash > 0f) _flash -= Time.deltaTime;
+            if (_reject > 0f) _reject -= Time.deltaTime;
+
+            Color body;
+            float glow;
+            if (_reject > 0f)
+            {
+                body = RejectColor;
+                glow = 0.3f;
+            }
+            else if (_lit)
+            {
+                body = LitColor;
+                glow = 0.3f + 0.05f * Mathf.Sin(Time.time * 5f);
+            }
+            else if (_flash > 0f)
+            {
+                body = Color.Lerp(DarkColor, LitColor, 0.4f + 0.6f * (_flash / FlashTime));
+                glow = 0.45f * (_flash / FlashTime);
+            }
+            else
+            {
+                body = DarkColor;
+                glow = 0.06f + 0.04f * Mathf.Sin(Time.time * 3f);
+            }
+            _body.color = body;
+            Color glowColor = _reject > 0f ? RejectColor : new Color(0.6f, 1f, 1f, 1f);
+            glowColor.a = glow;
+            _glow.color = glowColor;
         }
     }
 
     /// <summary>
-    /// 백광의 군주가 내리는 빛기둥. 먼저 희미한 기둥으로 떨어질 자리를 보여 주고, 잠시 뒤 밝게 내리꽂는다.
+    /// 백광의 군주가 내리는 빛기둥. 먼저 테두리만 있는 희미한 기둥으로 떨어질 자리를 보여 주고,
+    /// 안쪽 빛줄기가 기둥 너비만큼 굵어지면 밝게 내리꽂는다.
     /// 내리꽂는 순간 기둥 안에 있으면 피해를 입는다. 대시로 통과할 수 있다.
     /// </summary>
     public sealed class LightPillar : MonoBehaviour
@@ -175,20 +236,46 @@ namespace SteamGame.Prototype
         private const float ActiveTime = 0.3f;
         private const float Height = 30f;
 
+        private static readonly Color WarnColor = new Color(1f, 0.95f, 0.6f, 1f);
+        private static readonly Color HotColor = new Color(1f, 0.98f, 0.82f, 1f);
+
         private PlayerController _player;
-        private SpriteRenderer _renderer;
+        private SpriteRenderer _fill;
+        private SpriteRenderer _charge;
+        private SpriteRenderer _left;
+        private SpriteRenderer _right;
+        private SpriteRenderer _floor;
+        private SpriteRenderer _core;
+        private SpriteRenderer _glow;
         private float _warn;
+        private float _warnTime;
         private float _active;
         private bool _fired;
         private bool _hitDone;
 
         public static void Spawn(Transform parent, PlayerController player, float x, float warnTime)
         {
-            SpriteRenderer renderer = PrototypeArt.CreateBox("LightPillar", parent, new Vector2(x, StageBuilder.GroundTop + Height * 0.5f - 4f), new Vector2(HalfWidth * 2f, Height), new Color(1f, 0.95f, 0.6f, 0.14f), 4);
-            var pillar = renderer.gameObject.AddComponent<LightPillar>();
+            var go = new GameObject("LightPillar");
+            go.transform.SetParent(parent, false);
+            go.transform.position = new Vector3(x, StageBuilder.GroundTop + Height * 0.5f - 4f, 0f);
+            var pillar = go.AddComponent<LightPillar>();
             pillar._player = player;
-            pillar._renderer = renderer;
             pillar._warn = warnTime;
+            pillar._warnTime = Mathf.Max(0.01f, warnTime);
+
+            Transform root = go.transform;
+            var size = new Vector2(HalfWidth * 2f, Height);
+            pillar._fill = PrototypeArt.CreateBox("Fill", root, Vector2.zero, size, HazardArt.WithAlpha(WarnColor, 0f), 4);
+            pillar._charge = PrototypeArt.CreateBox("Charge", root, Vector2.zero, size, HazardArt.WithAlpha(WarnColor, 0f), 4);
+            pillar._left = PrototypeArt.CreateBox("EdgeLeft", root, new Vector2(-HalfWidth + 0.03f, 0f), new Vector2(0.06f, Height), HazardArt.WithAlpha(WarnColor, 0f), 5);
+            pillar._right = PrototypeArt.CreateBox("EdgeRight", root, new Vector2(HalfWidth - 0.03f, 0f), new Vector2(0.06f, Height), HazardArt.WithAlpha(WarnColor, 0f), 5);
+            // 기둥이 꽂힐 바닥에 빛 웅덩이를 둔다.
+            Vector2 floor = new Vector2(x, StageBuilder.GroundTop + 0.05f);
+            pillar._floor = RaidArt.Create("Floor", root, floor, new Vector2(HalfWidth * 3.2f, 0.45f), RaidArt.Disc, HazardArt.WithAlpha(WarnColor, 0f), 4);
+            pillar._glow = HazardArt.Create("Glow", root, Vector2.zero, new Vector2(HalfWidth * 5f, Height), HazardArt.Soft, HazardArt.WithAlpha(HotColor, 0f), 4);
+            pillar._core = PrototypeArt.CreateBox("Core", root, Vector2.zero, new Vector2(HalfWidth * 2.4f, Height), HazardArt.WithAlpha(HotColor, 0f), 5);
+            pillar._glow.enabled = false;
+            pillar._core.enabled = false;
         }
 
         private void Update()
@@ -196,18 +283,29 @@ namespace SteamGame.Prototype
             if (!_fired)
             {
                 _warn -= Time.deltaTime;
-                // 떨어지기 직전에는 더 진하게 깜빡인다.
-                float pulse = _warn < 0.3f && Mathf.FloorToInt(Time.time * 16f) % 2 == 0 ? 0.32f : 0.16f;
-                _renderer.color = new Color(1f, 0.95f, 0.6f, pulse);
+                float progress = 1f - Mathf.Clamp01(_warn / _warnTime);
+                float appear = Mathf.Clamp01((_warnTime - _warn) / 0.1f);
+                // 떨어지기 직전에는 테두리가 하얗게 깜빡인다.
+                bool blink = _warn < 0.3f && Mathf.FloorToInt(Time.time * 16f) % 2 == 0;
+                Color edge = blink ? Color.white : WarnColor;
+                _fill.color = HazardArt.WithAlpha(WarnColor, 0.07f * appear);
+                _charge.transform.localScale = new Vector3(Mathf.Max(0.02f, HalfWidth * 2f * progress), Height, 1f);
+                _charge.color = HazardArt.WithAlpha(WarnColor, (0.12f + 0.2f * progress) * appear);
+                _left.color = HazardArt.WithAlpha(edge, (blink ? 0.95f : 0.6f) * appear);
+                _right.color = HazardArt.WithAlpha(edge, (blink ? 0.95f : 0.6f) * appear);
+                _floor.color = HazardArt.WithAlpha(WarnColor, (0.2f + 0.3f * progress) * appear);
                 if (_warn > 0f) return;
 
                 _fired = true;
                 _active = ActiveTime;
-                transform.localScale = new Vector3(HalfWidth * 2.4f, Height, 1f);
-                _renderer.color = new Color(1f, 0.98f, 0.82f, 0.9f);
+                _fill.enabled = false;
+                _charge.enabled = false;
+                _core.enabled = true;
+                _glow.enabled = true;
                 Sfx.Play(Sound.Beam, 0.8f);
                 PrototypeGame game = PrototypeGame.Current;
                 if (game != null && game.Feel != null) game.Feel.Shake(0.06f, 0.08f);
+                if (game != null) game.ShowBlast(new Vector2(transform.position.x, StageBuilder.GroundTop + 0.2f), HalfWidth * 1.8f, HazardArt.WithAlpha(HotColor, 0.6f));
             }
 
             if (!_hitDone && _player != null)
@@ -221,9 +319,14 @@ namespace SteamGame.Prototype
             }
 
             _active -= Time.deltaTime;
-            Color color = _renderer.color;
-            color.a = Mathf.Clamp01(_active / ActiveTime) * 0.9f;
-            _renderer.color = color;
+            float ratio = Mathf.Clamp01(_active / ActiveTime);
+            bool flash = ActiveTime - _active < 0.06f;
+            _core.color = flash ? Color.white : HazardArt.WithAlpha(HotColor, 0.9f * ratio);
+            _core.transform.localScale = new Vector3(HalfWidth * 2.4f * Mathf.Lerp(0.85f, 1f, ratio), Height, 1f);
+            _glow.color = HazardArt.WithAlpha(HotColor, 0.4f * ratio);
+            _left.color = HazardArt.WithAlpha(Color.white, 0.8f * ratio);
+            _right.color = HazardArt.WithAlpha(Color.white, 0.8f * ratio);
+            _floor.color = HazardArt.WithAlpha(HotColor, 0.7f * ratio);
             if (_active <= 0f) Destroy(gameObject);
         }
     }
